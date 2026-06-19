@@ -1,0 +1,31 @@
+[project]
+name = "tpm-compliance"
+version = "1.5.0"
+description = "TPM x FW Rate Card Compliance Validator"
+authors = [
+    { name = "Teerapat Haeranyikanon", email = "Teerapat.Haeranyikanon@unilever.com" }
+]
+requires-python = ">=3.10,<3.13"
+
+# Runtime dependencies (what the .exe needs)
+dependencies = [
+    "polars>=1.0,<2.0",
+    "pandas>=2.0,<3.0",
+    "openpyxl>=3.1",
+    "xlsxwriter>=3.2",
+    "fastexcel>=0.10",
+    "questionary>=2.0",
+    "rich>=13.0",
+    "pyxlsb>=1.0",
+]
+
+# Build dependencies (only needed to create the .exe)
+[project.optional-dependencies]
+build = [
+    "pyinstaller>=6.0,<7.0",
+    "pyinstaller-hooks-contrib>=2024.0",
+]
+
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"

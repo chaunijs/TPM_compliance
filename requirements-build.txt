@@ -1,0 +1,16 @@
+# TPM Compliance Build Dependencies
+# Pin versions for reproducible builds
+
+# === Runtime packages ===
+polars>=1.0,<2.0
+pandas>=2.0,<3.0
+openpyxl>=3.1
+xlsxwriter>=3.2
+fastexcel>=0.10
+questionary>=2.0
+rich>=13.0
+pyxlsb>=1.0
+
+# === Build tools ===
+pyinstaller>=6.0,<7.0
+pyinstaller-hooks-contrib>=2024.0

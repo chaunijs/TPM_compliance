@@ -1,0 +1,72 @@
+# ============================================================
+# TPM Compliance Project - .gitignore
+# ============================================================
+
+# ---- Build artifacts (PyInstaller) ----
+build/
+dist/
+*.spec.bak
+
+# ---- Python virtual environments ----
+build_venv/
+.venv/
+venv/
+env/
+
+# ---- Build packaging metadata ----
+*.egg-info/
+tpm_compliance.egg-info/
+*.egg
+
+# ---- Logs ----
+build_log.txt
+exe_log.txt
+*.log
+
+# ---- Python cache ----
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*$py.class
+.Python
+
+# ---- Distribution / packaging ----
+*.manifest
+*.exe
+*.dll
+*.so
+*.dylib
+
+# ---- IDE / Editor ----
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ---- Jupyter ----
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# ---- TPM input/output files (don't commit business data!) ----
+TpM*.xlsx
+TpM*.xlsb
+*FW rate card*.xlsx
+*FW rate card*.xlsb
+TPM_FW_Compliance_Output_*.xlsx
+TPM_FW_Compliance_Log_*.txt
+~$*.xlsx
+~$*.xlsb
+
+# ---- Sensitive / config ----
+.env
+.env.local
+*.secret
+credentials.json
+
+# ---- OS files ----
+desktop.ini
+*.lnk
