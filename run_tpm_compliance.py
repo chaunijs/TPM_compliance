@@ -205,33 +205,26 @@ def load_tpm(tpm_path: Path) -> pl.DataFrame:
 
     initial_rows = df.height
 
+    # ---- v1.7: Auto-rename original column names → standard names ----
+    # Handles original SAP export names (e.g. WPRM) so user doesn't have to
+    # manually rename in Excel before running.
+    RENAME_MAP = {
+        "WPRM": "RSP Promo",
+        # Add more mappings here as you discover them:
+        # "Original name": "Standard name",
+    }
+    cols_to_rename = {orig: new for orig, new in RENAME_MAP.items()
+                      if orig in df.columns and new not in df.columns}
+    if cols_to_rename:
+        df = df.rename(cols_to_rename)
+        for orig, new in cols_to_rename.items():
+            console.print(f"   [dim]Renamed column: '{orig}' → '{new}'[/]")
+
     cols_to_drop = _columns_to_drop(df.columns)
     if cols_to_drop:
         df = df.drop(cols_to_drop)
         console.print(f"   [dim]Dropped {len(cols_to_drop)} unused column(s): "
                       f"{', '.join(cols_to_drop)}[/]")
-
-    if "Sales_Org" in df.columns:
-        df = df.with_columns(
-            pl.col("Sales_Org").cast(pl.Utf8).str.strip_chars().alias("_sales_org_str")
-        )
-        before = df.height
-        df = df.filter(pl.col("_sales_org_str") == VALID_SALES_ORG)
-        df = df.drop("_sales_org_str")
-        dropped = before - df.height
-        if dropped > 0:
-            console.print(f"   [dim]Filtered Sales_Org=='{VALID_SALES_ORG}': "
-                          f"dropped {dropped:,} irrelevant rows ({before:,} → {df.height:,})[/]")
-    else:
-        console.print(f"   [yellow]⚠ Sales_Org column not found — skipping filter[/]")
-
-    if df.height == 0:
-        raise RuntimeError(
-            f"After filtering Sales_Org=='{VALID_SALES_ORG}', no rows remain. "
-            f"Original file had {initial_rows:,} rows."
-        )
-
-    return df
 
 
 def add_helper_columns(df: pl.DataFrame) -> pl.DataFrame:
