@@ -1,16 +1,21 @@
 """
-TPM × FW Rate Card Compliance Validator — v1.5
+TPM × FW Rate Card Compliance Validator — v1.6
 ==============================================
-v1.5 changes:
-  ✓ Filter Sales_Org = "7001" only (drop irrelevant text rows)
-  ✓ Merge Quarter_Flag into Justification, then drop Quarter_Flag column
-v1.4 features:
-  ✓ Plain-text questionary prompts (no Rich markup leak)
-  ✓ Suppress polars/calamine dtype warnings
-  ✓ Numeric float columns formatted to 1 decimal in xlsx
+v1.6 changes:
+  ✓ FW_Rate_Number is now a SET of values (slash-delimited string)
+    extracted from multiple Excel columns per Period:
+      - Weekly:        cols {AJ, L, V, X}
+      - Bi/Tri-weekly: cols {J, N}
+      - Monthly:       cols {H, AA}
+  ✓ Each cell may contain '/' delimiter → split into the SET
+  ✓ Numeric values → format as 1 decimal (e.g. "99.0")
+  ✓ Non-numeric → keep as uppercase string (e.g. "BOGO", "2F1")
+  ✓ Comply = Final_Rsp matches any numeric value in the SET (±0.5)
+v1.5 features unchanged:
+  ✓ Sales_Org == "7001" filter
+  ✓ Quarter mismatch merged into Justification
   ✓ Drop unused columns (RSP CCBT, GAP, Unnamed, promo mechanic)
-  ✓ Polars vectorized processing
-  ✓ EXACT MATCH Comply logic
+  ✓ Polars + EXACT MATCH Comply
 """
 
 from __future__ import annotations
@@ -36,7 +41,6 @@ from rich import box
 
 console = Console()
 
-# Suppress polars/calamine dtype warnings on the console
 warnings.filterwarnings("ignore", message=".*[Cc]ould not determine dtype.*")
 warnings.filterwarnings("ignore", message=".*[Ff]alling back to string.*")
 logging.getLogger("polars").setLevel(logging.ERROR)
@@ -52,13 +56,28 @@ else:
 OUT_NAME = f"TPM_FW_Compliance_Output_{date.today():%Y-%m-%d}.xlsx"
 LOG_NAME = f"TPM_FW_Compliance_Log_{date.today():%Y-%m-%d}.txt"
 
-# Columns to drop from output (case-insensitive)
 DROP_COLUMNS = ["RSP CCBT", "GAP", "promo mechanic"]
-
-# Sales_Org filter — keep only this value
 VALID_SALES_ORG = "7001"
 
-# Custom questionary style
+# ============================================================
+# v1.6 NEW: Excel column SET mapping for FW_Rate_Number
+# ============================================================
+def col_letter_to_idx(letter: str) -> int:
+    """Convert Excel column letter to 0-based index. A=0, Z=25, AA=26, AJ=35."""
+    letter = letter.upper().strip()
+    n = 0
+    for c in letter:
+        n = n * 26 + (ord(c) - ord('A') + 1)
+    return n - 1
+
+# Period → SET of Excel columns to pull from
+PERIOD_COL_MAP = {
+    "Weekly":     [col_letter_to_idx(c) for c in ("AJ", "L", "V", "X")],
+    "Bi-weekly":  [col_letter_to_idx(c) for c in ("J", "N")],
+    "Tri-weekly": [col_letter_to_idx(c) for c in ("J", "N")],
+    "Monthly":    [col_letter_to_idx(c) for c in ("H", "AA")],
+}
+
 QSTYLE = QStyle([
     ("qmark",       "fg:#00aaff bold"),
     ("question",    "bold"),
@@ -71,13 +90,13 @@ QSTYLE = QStyle([
 
 
 # ============================================================
-# UI HELPERS
+# UI HELPERS (unchanged from v1.5)
 # ============================================================
 def banner():
     console.print()
     console.print(Panel.fit(
         "[bold cyan]TPM × FW Rate Card Compliance Validator[/]\n"
-        "[dim]v1.5 — Polars + Interactive UI[/]\n"
+        "[dim]v1.6 — Polars + SET-based FW_Rate_Number[/]\n"
         f"[dim]{WORK_DIR}[/]",
         border_style="cyan",
         box=box.DOUBLE,
@@ -97,7 +116,6 @@ def list_xlsx_files(folder: Path) -> list:
 
 
 def pick_file(files: list, prompt: str, suggest_keyword: str = "") -> Path:
-    """Show arrow-key menu of files. Suggested matches appear first."""
     if suggest_keyword:
         kw = suggest_keyword.lower()
         matching = [f for f in files if kw in f.name.lower()]
@@ -130,7 +148,6 @@ def pick_file(files: list, prompt: str, suggest_keyword: str = "") -> Path:
 
 
 def pick_sheet(rate_path: Path) -> str:
-    """List rate-card sheets, suggest the latest quarter on top."""
     from openpyxl import load_workbook
     wb = load_workbook(rate_path, read_only=True, data_only=False)
     sheets = wb.sheetnames
@@ -167,7 +184,6 @@ def pick_sheet(rate_path: Path) -> str:
 # POLARS PROCESSING
 # ============================================================
 def _columns_to_drop(df_columns: list) -> list:
-    """Return list of columns to drop (case-insensitive, includes Unnamed/__UNNAMED__)."""
     drop_lower = {c.lower() for c in DROP_COLUMNS}
     result = []
     for col in df_columns:
@@ -180,7 +196,6 @@ def _columns_to_drop(df_columns: list) -> list:
 
 
 def load_tpm(tpm_path: Path) -> pl.DataFrame:
-    """Load TPM file with Polars + drop unused columns + filter Sales_Org."""
     if tpm_path.suffix.lower() == ".xlsb":
         df_pd = pd.read_excel(tpm_path, sheet_name=0, engine="pyxlsb")
         df = pl.from_pandas(df_pd)
@@ -190,16 +205,13 @@ def load_tpm(tpm_path: Path) -> pl.DataFrame:
 
     initial_rows = df.height
 
-    # ---- Drop unused/noisy columns ----
     cols_to_drop = _columns_to_drop(df.columns)
     if cols_to_drop:
         df = df.drop(cols_to_drop)
         console.print(f"   [dim]Dropped {len(cols_to_drop)} unused column(s): "
                       f"{', '.join(cols_to_drop)}[/]")
 
-    # ---- Filter Sales_Org == "7001" ----
     if "Sales_Org" in df.columns:
-        # Cast to string for safe comparison (handles int 7001 or "7001" or "7001 ")
         df = df.with_columns(
             pl.col("Sales_Org").cast(pl.Utf8).str.strip_chars().alias("_sales_org_str")
         )
@@ -216,21 +228,19 @@ def load_tpm(tpm_path: Path) -> pl.DataFrame:
     if df.height == 0:
         raise RuntimeError(
             f"After filtering Sales_Org=='{VALID_SALES_ORG}', no rows remain. "
-            f"Original file had {initial_rows:,} rows. Please verify the Sales_Org values."
+            f"Original file had {initial_rows:,} rows."
         )
 
     return df
 
 
 def add_helper_columns(df: pl.DataFrame) -> pl.DataFrame:
-    """All helper columns computed via vectorized Polars expressions."""
     required = ["PromoGroupProductDesc", "Instore_Start", "Instore_End",
                 "TPM_InvestmentDescription", "RSP Promo"]
     missing = [c for c in required if c not in df.columns]
     if missing:
         raise KeyError(f"Missing required columns: {missing}")
 
-    # 1. Promo_Type
     df = df.with_columns(
         pl.col("TPM_InvestmentDescription").cast(pl.Utf8)
           .str.to_uppercase().alias("_an_upper")
@@ -243,7 +253,6 @@ def add_helper_columns(df: pl.DataFrame) -> pl.DataFrame:
         .alias("Promo_Type")
     )
 
-    # 2. Promotion_Price (regex extract, vectorized)
     df = df.with_columns(
         pl.when(pl.col("Promo_Type") == "LAKSUE")
             .then(pl.col("_an_upper").str.extract(r"_LAKSUE ?(\d+)", 1)
@@ -255,19 +264,16 @@ def add_helper_columns(df: pl.DataFrame) -> pl.DataFrame:
         .alias("Promotion_Price")
     )
 
-    # 3. Date handling
     df = df.with_columns([
         pl.col("Instore_Start").cast(pl.Datetime, strict=False),
         pl.col("Instore_End").cast(pl.Datetime,   strict=False),
     ])
 
-    # 4. DateRange_Days
     df = df.with_columns(
         (pl.col("Instore_End") - pl.col("Instore_Start"))
         .dt.total_days().alias("DateRange_Days")
     )
 
-    # 5. Period
     df = df.with_columns(
         pl.when(pl.col("DateRange_Days").is_null()).then(pl.lit(""))
         .when(pl.col("DateRange_Days") <= 10.5).then(pl.lit("Weekly"))
@@ -277,7 +283,6 @@ def add_helper_columns(df: pl.DataFrame) -> pl.DataFrame:
         .alias("Period")
     )
 
-    # 6. Final_Rsp
     df = df.with_columns(
         pl.when((pl.col("RSP Promo").is_not_null()) & (pl.col("RSP Promo") > 0))
         .then(pl.col("RSP Promo"))
@@ -285,7 +290,6 @@ def add_helper_columns(df: pl.DataFrame) -> pl.DataFrame:
         .alias("Final_Rsp")
     )
 
-    # 7. Quarter_Year
     df = df.with_columns(
         pl.when(pl.col("Instore_Start").is_null()).then(None)
         .otherwise(
@@ -299,8 +303,59 @@ def add_helper_columns(df: pl.DataFrame) -> pl.DataFrame:
     return df.drop("_an_upper")
 
 
+# ============================================================
+# v1.6 NEW: Parse a cell that may contain '/' delimiter into a SET
+# ============================================================
+def parse_set_cell(v) -> list:
+    """
+    Parse a rate-card cell into a list of values.
+    - NaN/empty   → []
+    - Numeric     → [round(value, 1)]   (1 decimal)
+    - Text with '/' → split, then numeric→float, else uppercase string
+    - Text without '/' → numeric→float, else uppercase string
+    """
+    if pd.isna(v):
+        return []
+    if isinstance(v, (int, float)):
+        return [round(float(v), 1)]
+    s = str(v).strip()
+    if not s or s.lower() == "nan":
+        return []
+    parts = [p.strip() for p in s.split("/") if p.strip()]
+    out = []
+    for p in parts:
+        try:
+            out.append(round(float(p), 1))
+        except ValueError:
+            # Strip a trailing % if any, retry once
+            try:
+                out.append(round(float(p.rstrip("%").strip()), 1))
+            except ValueError:
+                out.append(p.upper())
+    return out
+
+
+def format_set(values: list) -> str | None:
+    """Format a SET list back into display string '99.0/109.0/BOGO'."""
+    if not values:
+        return None
+    parts = []
+    for v in values:
+        if isinstance(v, str):
+            parts.append(v)
+        else:
+            parts.append(f"{v:.1f}")
+    return "/".join(parts)
+
+
+# ============================================================
+# v1.6 UPDATED: Build rate lookup using Excel-column SETS
+# ============================================================
 def build_rate_lookup(rate_path: Path, sheet_name: str) -> tuple:
-    """Read rate-card sheet → return (lookup_df, quarter_tag)."""
+    """
+    Read rate-card sheet → return (lookup_df, quarter_tag).
+    Builds SET of values from PERIOD_COL_MAP for each (PPG, Period).
+    """
     df_raw = pd.read_excel(rate_path, sheet_name=sheet_name, header=None)
 
     m = re.search(r"Q\s*([1-4])[\s,_-]*\s*(20\d{2})", sheet_name, re.IGNORECASE)
@@ -316,21 +371,15 @@ def build_rate_lookup(rate_path: Path, sheet_name: str) -> tuple:
         hits = [i for i, v in row.items() if contains.lower() in v.lower()]
         return hits[0] if hits else None
 
-    ppg_col     = locate("Promo Group")
-    monthly_col = locate("Monthly")
-    bwtri_col   = locate("BW/TRI")
-    weekly_col  = locate("WK")
-
+    ppg_col = locate("Promo Group")
     if ppg_col is None:
-        raise RuntimeError(f"Could not find 'Promo Group' column in sheet '{sheet_name}'")
+        raise RuntimeError(f"Could not find 'Promo Group' column in '{sheet_name}'")
 
-    def parse_cell(v):
-        if pd.isna(v): return None
-        if isinstance(v, (int, float)): return float(v)
-        s = str(v).upper()
-        if "BOGO" in s: return None
-        m_inner = re.search(r"(\d+(?:\.\d+)?)", s)
-        return float(m_inner.group(1)) if m_inner else None
+    max_col_needed = max(max(cols) for cols in PERIOD_COL_MAP.values())
+    if df_raw.shape[1] <= max_col_needed:
+        console.print(f"   [yellow]⚠ Sheet has only {df_raw.shape[1]} columns, "
+                      f"but logic expects up to col index {max_col_needed} (column "
+                      f"{chr(ord('A')+max_col_needed) if max_col_needed < 26 else '...'}).[/]")
 
     records = []
     for _, row in df_raw.iloc[hdr_row + 1:].iterrows():
@@ -339,22 +388,31 @@ def build_rate_lookup(rate_path: Path, sheet_name: str) -> tuple:
         ppg_str = str(ppg).strip()
         if not ppg_str or ppg_str.lower() in ("nan", "note"): continue
 
-        if monthly_col is not None:
-            r = parse_cell(row.iloc[monthly_col])
-            if r is not None:
-                records.append({"PPG": ppg_str, "Period": "Monthly", "FW_Rate_Number": r})
-        if bwtri_col is not None:
-            r = parse_cell(row.iloc[bwtri_col])
-            if r is not None:
-                records.append({"PPG": ppg_str, "Period": "Bi-weekly",  "FW_Rate_Number": r})
-                records.append({"PPG": ppg_str, "Period": "Tri-weekly", "FW_Rate_Number": r})
-        if weekly_col is not None:
-            r = parse_cell(row.iloc[weekly_col])
-            if r is not None:
-                records.append({"PPG": ppg_str, "Period": "Weekly", "FW_Rate_Number": r})
+        for period, col_indices in PERIOD_COL_MAP.items():
+            value_set = []
+            for col_idx in col_indices:
+                if col_idx < df_raw.shape[1]:
+                    parsed = parse_set_cell(row.iloc[col_idx])
+                    value_set.extend(parsed)
+
+            # Dedupe preserving order (treat float and string as distinct keys)
+            seen = set()
+            unique_set = []
+            for v in value_set:
+                key = ("S", v) if isinstance(v, str) else ("N", round(float(v), 1))
+                if key not in seen:
+                    seen.add(key)
+                    unique_set.append(v)
+
+            if unique_set:
+                records.append({
+                    "PPG":            ppg_str,
+                    "Period":         period,
+                    "FW_Rate_Number": format_set(unique_set),
+                })
 
     if not records:
-        raise RuntimeError(f"No usable rates extracted from sheet '{sheet_name}'")
+        raise RuntimeError(f"No usable rates from '{sheet_name}'")
 
     lookup = pl.DataFrame(records)
     return lookup, quarter
@@ -375,18 +433,49 @@ def attach_rate(tpm: pl.DataFrame, lookup: pl.DataFrame, quarter: str) -> pl.Dat
     return tpm
 
 
+# ============================================================
+# v1.6 UPDATED: Justification checks Final_Rsp ∈ FW_Rate_Number SET
+# ============================================================
+def _final_in_set(rate_str: str | None, final_rsp: float | None) -> bool | None:
+    """
+    Return True if Final_Rsp matches any NUMERIC value in the '/' set
+    (tolerance ±0.5). Strings in the set (e.g. 'BOGO') don't match numbers.
+    Return None if inputs are null (handled by outer when/then).
+    """
+    if rate_str is None or final_rsp is None:
+        return None
+    if not rate_str:
+        return False
+    for part in str(rate_str).split("/"):
+        part = part.strip()
+        try:
+            if abs(float(part) - float(final_rsp)) <= 0.5:
+                return True
+        except ValueError:
+            continue
+    return False
+
+
 def add_justification(tpm: pl.DataFrame) -> pl.DataFrame:
     """
-    EXACT MATCH (4 categories) + Quarter mismatch merged into Justification.
-    Priority order:
-      1. NO rate card available  (no FW_Rate_Number)
-      2. Missing Final_Rsp       (no Final_Rsp)
-      3. ⚠ Quarter mismatch      (Quarter_Year != Rate_Card_Source)
-      4. Comply                  (|Final_Rsp - FW_Rate_Number| <= 0.5)
-      5. NOT Comply              (otherwise)
+    Priority:
+      1. NO rate card available  (FW_Rate_Number null/empty)
+      2. Missing Final_Rsp
+      3. ⚠ Quarter mismatch
+      4. Comply        (Final_Rsp ∈ FW_Rate_Number SET, ±0.5)
+      5. NOT Comply
     """
-    return tpm.with_columns(
-        pl.when(pl.col("FW_Rate_Number").is_null())
+    # Pre-compute set-membership boolean using map_elements
+    tpm = tpm.with_columns(
+        pl.struct(["FW_Rate_Number", "Final_Rsp"])
+          .map_elements(
+              lambda s: _final_in_set(s["FW_Rate_Number"], s["Final_Rsp"]),
+              return_dtype=pl.Boolean
+          ).alias("_in_set")
+    )
+
+    tpm = tpm.with_columns(
+        pl.when(pl.col("FW_Rate_Number").is_null() | (pl.col("FW_Rate_Number") == ""))
             .then(pl.lit("NO rate card available"))
         .when(pl.col("Final_Rsp").is_null())
             .then(pl.lit("Missing Final_Rsp"))
@@ -395,11 +484,13 @@ def add_justification(tpm: pl.DataFrame) -> pl.DataFrame:
             & pl.col("Rate_Card_Source").is_not_null()
             & (pl.col("Quarter_Year") != pl.col("Rate_Card_Source"))
         ).then(pl.lit("⚠ Quarter mismatch"))
-        .when((pl.col("Final_Rsp") - pl.col("FW_Rate_Number")).abs() <= 0.5)
+        .when(pl.col("_in_set") == True)
             .then(pl.lit("Comply"))
         .otherwise(pl.lit("NOT Comply"))
         .alias("Justification")
-    )
+    ).drop("_in_set")
+
+    return tpm
 
 
 def build_summary(tpm: pl.DataFrame) -> pl.DataFrame:
@@ -424,15 +515,13 @@ def build_summary(tpm: pl.DataFrame) -> pl.DataFrame:
 
 
 # ============================================================
-# OUTPUT
+# OUTPUT (unchanged from v1.5)
 # ============================================================
 def save_output(tpm: pl.DataFrame, summary: pl.DataFrame, out_path: Path):
-    # Final-pass cleanup: drop any leftover unused columns
     final_drop = _columns_to_drop(tpm.columns)
     if final_drop:
         tpm = tpm.drop(final_drop)
 
-    # Handle locked previous output
     if out_path.exists():
         try:
             out_path.unlink()
@@ -440,7 +529,6 @@ def save_output(tpm: pl.DataFrame, summary: pl.DataFrame, out_path: Path):
             out_path = out_path.with_stem(out_path.stem + "_v2")
             console.print(f"   [yellow]⚠ Previous output locked → writing to {out_path.name}[/]")
 
-    # Build per-column number formats
     float_fmt = {"num_format": "0.0"}
     int_fmt   = {"num_format": "0"}
     date_fmt  = {"num_format": "yyyy-mm-dd"}
@@ -456,7 +544,6 @@ def save_output(tpm: pl.DataFrame, summary: pl.DataFrame, out_path: Path):
 
     import xlsxwriter
     with xlsxwriter.Workbook(out_path) as wb:
-        # ---- Compliance sheet ----
         tpm.write_excel(
             workbook=wb,
             worksheet="Compliance",
@@ -484,7 +571,6 @@ def save_output(tpm: pl.DataFrame, summary: pl.DataFrame, out_path: Path):
             },
         )
 
-        # ---- Summary sheet ----
         summary_col_formats = {}
         for col, dtype in zip(summary.columns, summary.dtypes):
             if dtype in (pl.Float32, pl.Float64):
@@ -512,7 +598,6 @@ def save_output(tpm: pl.DataFrame, summary: pl.DataFrame, out_path: Path):
             },
         )
 
-    # Verify
     if not out_path.exists() or out_path.stat().st_size < 1024:
         raise RuntimeError(f"Output file empty/corrupt: {out_path}")
     chk = pd.read_excel(out_path, sheet_name="Compliance", nrows=5)
@@ -522,7 +607,7 @@ def save_output(tpm: pl.DataFrame, summary: pl.DataFrame, out_path: Path):
 
 
 # ============================================================
-# RICH SUMMARY DISPLAY
+# RICH SUMMARY DISPLAY (unchanged from v1.5)
 # ============================================================
 def display_summary(tpm: pl.DataFrame, out_path: Path):
     total = tpm.height
@@ -559,7 +644,6 @@ def display_summary(tpm: pl.DataFrame, out_path: Path):
     table.add_row("[bold]Total[/]", f"[bold]{total:,}[/]", "100.0%", "")
     console.print(table)
 
-    # File info
     size_mb = out_path.stat().st_size / 1024 / 1024
     console.print(Panel.fit(
         f"[green]✅ Output saved successfully![/]\n\n"
@@ -580,21 +664,17 @@ def display_summary(tpm: pl.DataFrame, out_path: Path):
 def main():
     banner()
 
-    # ---- Step 0: List files ----
     files = list_xlsx_files(WORK_DIR)
     if not files:
         console.print(f"[red]❌ No xlsx files found in {WORK_DIR}[/]")
-        console.print("[dim]Please put your TPM and FW rate card files here, then re-run.[/]")
         sys.exit(1)
 
     console.print(f"[dim]Found {len(files)} Excel file(s) in working folder[/]\n")
 
-    # ---- Step 1: Pick TPM file ----
     tpm_path = pick_file(files, "📂 Which file is the TPM file?",
                           suggest_keyword="tpm")
     console.print(f"   [green]✓[/] TPM file: [bold]{tpm_path.name}[/]\n")
 
-    # ---- Step 2: Pick rate-card file ----
     remaining = [f for f in files if f != tpm_path]
     if not remaining:
         console.print("[red]❌ Only one file in folder. Need a separate FW rate card file.[/]")
@@ -603,11 +683,9 @@ def main():
                            suggest_keyword="fw rate card")
     console.print(f"   [green]✓[/] Rate card: [bold]{rate_path.name}[/]\n")
 
-    # ---- Step 3: Pick rate-card sheet ----
     sheet_name = pick_sheet(rate_path)
     console.print(f"   [green]✓[/] Sheet: [bold]{sheet_name}[/]\n")
 
-    # ---- Process with progress bar ----
     with Progress(
         SpinnerColumn(),
         TextColumn("[bold blue]{task.description}"),
@@ -627,16 +705,17 @@ def main():
         tpm = add_helper_columns(tpm)
         progress.advance(t1)
 
-        progress.update(t1, description="Building rate-card lookup...")
+        progress.update(t1, description="Building rate-card SET lookup (v1.6)...")
         lookup, quarter = build_rate_lookup(rate_path, sheet_name)
-        progress.console.print(f"   [dim]Lookup table: {lookup.height:,} entries from {quarter}[/]")
+        progress.console.print(f"   [dim]Lookup table: {lookup.height:,} (PPG × Period) entries "
+                                f"from {quarter}[/]")
         progress.advance(t1)
 
-        progress.update(t1, description="Joining rate card to TPM...")
+        progress.update(t1, description="Joining rate card SET to TPM...")
         tpm = attach_rate(tpm, lookup, quarter)
         progress.advance(t1)
 
-        progress.update(t1, description="Computing Justification (with Quarter mismatch)...")
+        progress.update(t1, description="Computing Justification (SET membership)...")
         tpm = add_justification(tpm)
         progress.advance(t1)
 
@@ -646,11 +725,9 @@ def main():
         out_path = save_output(tpm, summary, out_path)
         progress.advance(t1)
 
-    # ---- Display results ----
     console.print()
     display_summary(tpm, out_path)
 
-    # ---- Self-tests ----
     console.print("\n[bold]Self-tests:[/]")
     no_rc = (tpm["Justification"] == "NO rate card available").mean()
     icon = "[green]✅[/]" if no_rc < 0.95 else "[red]❌[/]"
@@ -669,11 +746,17 @@ def main():
             icon = "[green]✅[/]" if rate > 0.8 else "[yellow]⚠️[/]"
             console.print(f"  {icon} {pt:<6s} extraction: {rate:.0%} of {sub.height:,} rows")
 
-    console.print("\n[bold green]🎉 Done![/] Press Enter to exit...")
-    try:
-        input()
-    except (EOFError, KeyboardInterrupt):
-        pass
+    # Show a few sample FW_Rate_Number values to verify SET parsing
+    if tpm.height > 0 and "FW_Rate_Number" in tpm.columns:
+        sample = (tpm.filter(pl.col("FW_Rate_Number").is_not_null())
+                     .select(["Period", "FW_Rate_Number"]).unique()
+                     .head(5))
+        if sample.height > 0:
+            console.print("\n[bold]Sample FW_Rate_Number SETs (v1.6):[/]")
+            for row in sample.iter_rows(named=True):
+                console.print(f"  [dim]{row['Period']:<12s}[/] → [cyan]{row['FW_Rate_Number']}[/]")
+
+    console.print("\n[bold green]🎉 Done![/]\n")
 
 
 # ============================================================
