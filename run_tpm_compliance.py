@@ -1,21 +1,20 @@
 """
-TPM × FW Rate Card Compliance Validator — v1.6
+TPM × FW Rate Card Compliance Validator — v1.7
 ==============================================
-v1.6 changes:
-  ✓ FW_Rate_Number is now a SET of values (slash-delimited string)
-    extracted from multiple Excel columns per Period:
-      - Weekly:        cols {AJ, L, V, X}
-      - Bi/Tri-weekly: cols {J, N}
-      - Monthly:       cols {H, AA}
-  ✓ Each cell may contain '/' delimiter → split into the SET
-  ✓ Numeric values → format as 1 decimal (e.g. "99.0")
-  ✓ Non-numeric → keep as uppercase string (e.g. "BOGO", "2F1")
-  ✓ Comply = Final_Rsp matches any numeric value in the SET (±0.5)
+v1.7 changes:
+  ✓ Auto-rename original SAP column 'WPRM' → 'RSP Promo'
+    Works whether user manually renamed the column or not:
+      - File has 'RSP Promo' only         → kept as-is
+      - File has 'WPRM' only              → renamed to 'RSP Promo'
+      - File has both (shouldn't happen)  → keeps 'RSP Promo', drops 'WPRM'
+v1.6 features unchanged:
+  ✓ FW_Rate_Number as SET from Excel cols {AJ,L,V,X}/{J,N}/{H,AA}
+  ✓ Slash-delimited values split into SET, 1-decimal numeric format
+  ✓ Comply = Final_Rsp matches any numeric value in SET (±0.5)
 v1.5 features unchanged:
   ✓ Sales_Org == "7001" filter
   ✓ Quarter mismatch merged into Justification
-  ✓ Drop unused columns (RSP CCBT, GAP, Unnamed, promo mechanic)
-  ✓ Polars + EXACT MATCH Comply
+  ✓ Drop unused columns
 """
 
 from __future__ import annotations
@@ -59,8 +58,14 @@ LOG_NAME = f"TPM_FW_Compliance_Log_{date.today():%Y-%m-%d}.txt"
 DROP_COLUMNS = ["RSP CCBT", "GAP", "promo mechanic"]
 VALID_SALES_ORG = "7001"
 
+# v1.7: Original SAP column names → standard names used in code
+# Format: {original_name: standard_name}
+COLUMN_RENAME_MAP = {
+    "WPRM": "RSP Promo",
+}
+
 # ============================================================
-# v1.6 NEW: Excel column SET mapping for FW_Rate_Number
+# v1.6: Excel column SET mapping for FW_Rate_Number
 # ============================================================
 def col_letter_to_idx(letter: str) -> int:
     """Convert Excel column letter to 0-based index. A=0, Z=25, AA=26, AJ=35."""
@@ -70,7 +75,6 @@ def col_letter_to_idx(letter: str) -> int:
         n = n * 26 + (ord(c) - ord('A') + 1)
     return n - 1
 
-# Period → SET of Excel columns to pull from
 PERIOD_COL_MAP = {
     "Weekly":     [col_letter_to_idx(c) for c in ("AJ", "L", "V", "X")],
     "Bi-weekly":  [col_letter_to_idx(c) for c in ("J", "N")],
@@ -90,13 +94,13 @@ QSTYLE = QStyle([
 
 
 # ============================================================
-# UI HELPERS (unchanged from v1.5)
+# UI HELPERS (unchanged)
 # ============================================================
 def banner():
     console.print()
     console.print(Panel.fit(
         "[bold cyan]TPM × FW Rate Card Compliance Validator[/]\n"
-        "[dim]v1.6 — Polars + SET-based FW_Rate_Number[/]\n"
+        "[dim]v1.7 — Polars + Auto-rename WPRM[/]\n"
         f"[dim]{WORK_DIR}[/]",
         border_style="cyan",
         box=box.DOUBLE,
@@ -195,6 +199,33 @@ def _columns_to_drop(df_columns: list) -> list:
     return result
 
 
+def _apply_column_renames(df: pl.DataFrame) -> pl.DataFrame:
+    """
+    v1.7: Handle SAP-original vs manually-renamed column names.
+    For each (original → standard) pair:
+      - If only original exists  → rename it
+      - If both exist            → drop original, keep standard
+      - If only standard exists  → do nothing
+      - If neither exists        → do nothing (caller will error later)
+    """
+    cols = set(df.columns)
+    for original, standard in COLUMN_RENAME_MAP.items():
+        has_original = original in cols
+        has_standard = standard in cols
+
+        if has_original and has_standard:
+            # Both columns present — prefer the standard one, drop the original
+            df = df.drop(original)
+            console.print(f"   [yellow]⚠ Both '{original}' and '{standard}' exist — "
+                          f"kept '{standard}', dropped '{original}'[/]")
+        elif has_original and not has_standard:
+            # Only original present — rename it
+            df = df.rename({original: standard})
+            console.print(f"   [dim]Renamed column: '{original}' → '{standard}'[/]")
+        # else: only standard, or neither — nothing to do here
+    return df
+
+
 def load_tpm(tpm_path: Path) -> pl.DataFrame:
     if tpm_path.suffix.lower() == ".xlsb":
         df_pd = pd.read_excel(tpm_path, sheet_name=0, engine="pyxlsb")
@@ -205,20 +236,9 @@ def load_tpm(tpm_path: Path) -> pl.DataFrame:
 
     initial_rows = df.height
 
-    # ---- v1.7: Auto-rename original column names → standard names ----
-    # Handles original SAP export names (e.g. WPRM) so user doesn't have to
-    # manually rename in Excel before running.
-    RENAME_MAP = {
-        "WPRM": "RSP Promo",
-        # Add more mappings here as you discover them:
-        # "Original name": "Standard name",
-    }
-    cols_to_rename = {orig: new for orig, new in RENAME_MAP.items()
-                      if orig in df.columns and new not in df.columns}
-    if cols_to_rename:
-        df = df.rename(cols_to_rename)
-        for orig, new in cols_to_rename.items():
-            console.print(f"   [dim]Renamed column: '{orig}' → '{new}'[/]")
+    # v1.7: Auto-rename SAP-original column names BEFORE drop check
+    # so that 'WPRM' doesn't accidentally get caught by any drop filter
+    df = _apply_column_renames(df)
 
     cols_to_drop = _columns_to_drop(df.columns)
     if cols_to_drop:
@@ -226,13 +246,39 @@ def load_tpm(tpm_path: Path) -> pl.DataFrame:
         console.print(f"   [dim]Dropped {len(cols_to_drop)} unused column(s): "
                       f"{', '.join(cols_to_drop)}[/]")
 
+    if "Sales_Org" in df.columns:
+        df = df.with_columns(
+            pl.col("Sales_Org").cast(pl.Utf8).str.strip_chars().alias("_sales_org_str")
+        )
+        before = df.height
+        df = df.filter(pl.col("_sales_org_str") == VALID_SALES_ORG)
+        df = df.drop("_sales_org_str")
+        dropped = before - df.height
+        if dropped > 0:
+            console.print(f"   [dim]Filtered Sales_Org=='{VALID_SALES_ORG}': "
+                          f"dropped {dropped:,} irrelevant rows ({before:,} → {df.height:,})[/]")
+    else:
+        console.print(f"   [yellow]⚠ Sales_Org column not found — skipping filter[/]")
+
+    if df.height == 0:
+        raise RuntimeError(
+            f"After filtering Sales_Org=='{VALID_SALES_ORG}', no rows remain. "
+            f"Original file had {initial_rows:,} rows."
+        )
+
+    return df
+
 
 def add_helper_columns(df: pl.DataFrame) -> pl.DataFrame:
     required = ["PromoGroupProductDesc", "Instore_Start", "Instore_End",
                 "TPM_InvestmentDescription", "RSP Promo"]
     missing = [c for c in required if c not in df.columns]
     if missing:
-        raise KeyError(f"Missing required columns: {missing}")
+        # v1.7: helpful hint if RSP Promo is missing
+        hint = ""
+        if "RSP Promo" in missing and "WPRM" in df.columns:
+            hint = "\n[Hint] Column 'WPRM' was found but not renamed. Check COLUMN_RENAME_MAP."
+        raise KeyError(f"Missing required columns: {missing}{hint}")
 
     df = df.with_columns(
         pl.col("TPM_InvestmentDescription").cast(pl.Utf8)
@@ -276,6 +322,11 @@ def add_helper_columns(df: pl.DataFrame) -> pl.DataFrame:
         .alias("Period")
     )
 
+    # Cast RSP Promo to Float64 in case it came in as string
+    df = df.with_columns(
+        pl.col("RSP Promo").cast(pl.Float64, strict=False).alias("RSP Promo")
+    )
+
     df = df.with_columns(
         pl.when((pl.col("RSP Promo").is_not_null()) & (pl.col("RSP Promo") > 0))
         .then(pl.col("RSP Promo"))
@@ -297,16 +348,9 @@ def add_helper_columns(df: pl.DataFrame) -> pl.DataFrame:
 
 
 # ============================================================
-# v1.6 NEW: Parse a cell that may contain '/' delimiter into a SET
+# v1.6: Parse cell into SET
 # ============================================================
 def parse_set_cell(v) -> list:
-    """
-    Parse a rate-card cell into a list of values.
-    - NaN/empty   → []
-    - Numeric     → [round(value, 1)]   (1 decimal)
-    - Text with '/' → split, then numeric→float, else uppercase string
-    - Text without '/' → numeric→float, else uppercase string
-    """
     if pd.isna(v):
         return []
     if isinstance(v, (int, float)):
@@ -320,7 +364,6 @@ def parse_set_cell(v) -> list:
         try:
             out.append(round(float(p), 1))
         except ValueError:
-            # Strip a trailing % if any, retry once
             try:
                 out.append(round(float(p.rstrip("%").strip()), 1))
             except ValueError:
@@ -329,7 +372,6 @@ def parse_set_cell(v) -> list:
 
 
 def format_set(values: list) -> str | None:
-    """Format a SET list back into display string '99.0/109.0/BOGO'."""
     if not values:
         return None
     parts = []
@@ -341,14 +383,7 @@ def format_set(values: list) -> str | None:
     return "/".join(parts)
 
 
-# ============================================================
-# v1.6 UPDATED: Build rate lookup using Excel-column SETS
-# ============================================================
 def build_rate_lookup(rate_path: Path, sheet_name: str) -> tuple:
-    """
-    Read rate-card sheet → return (lookup_df, quarter_tag).
-    Builds SET of values from PERIOD_COL_MAP for each (PPG, Period).
-    """
     df_raw = pd.read_excel(rate_path, sheet_name=sheet_name, header=None)
 
     m = re.search(r"Q\s*([1-4])[\s,_-]*\s*(20\d{2})", sheet_name, re.IGNORECASE)
@@ -371,8 +406,7 @@ def build_rate_lookup(rate_path: Path, sheet_name: str) -> tuple:
     max_col_needed = max(max(cols) for cols in PERIOD_COL_MAP.values())
     if df_raw.shape[1] <= max_col_needed:
         console.print(f"   [yellow]⚠ Sheet has only {df_raw.shape[1]} columns, "
-                      f"but logic expects up to col index {max_col_needed} (column "
-                      f"{chr(ord('A')+max_col_needed) if max_col_needed < 26 else '...'}).[/]")
+                      f"but logic expects up to col index {max_col_needed}.[/]")
 
     records = []
     for _, row in df_raw.iloc[hdr_row + 1:].iterrows():
@@ -388,7 +422,6 @@ def build_rate_lookup(rate_path: Path, sheet_name: str) -> tuple:
                     parsed = parse_set_cell(row.iloc[col_idx])
                     value_set.extend(parsed)
 
-            # Dedupe preserving order (treat float and string as distinct keys)
             seen = set()
             unique_set = []
             for v in value_set:
@@ -412,7 +445,6 @@ def build_rate_lookup(rate_path: Path, sheet_name: str) -> tuple:
 
 
 def attach_rate(tpm: pl.DataFrame, lookup: pl.DataFrame, quarter: str) -> pl.DataFrame:
-    """Left-join lookup via (PPG, Period)."""
     tpm = tpm.with_columns(
         pl.col("PromoGroupProductDesc").cast(pl.Utf8)
           .str.strip_chars().alias("_ppg_key")
@@ -426,15 +458,7 @@ def attach_rate(tpm: pl.DataFrame, lookup: pl.DataFrame, quarter: str) -> pl.Dat
     return tpm
 
 
-# ============================================================
-# v1.6 UPDATED: Justification checks Final_Rsp ∈ FW_Rate_Number SET
-# ============================================================
 def _final_in_set(rate_str: str | None, final_rsp: float | None) -> bool | None:
-    """
-    Return True if Final_Rsp matches any NUMERIC value in the '/' set
-    (tolerance ±0.5). Strings in the set (e.g. 'BOGO') don't match numbers.
-    Return None if inputs are null (handled by outer when/then).
-    """
     if rate_str is None or final_rsp is None:
         return None
     if not rate_str:
@@ -450,15 +474,6 @@ def _final_in_set(rate_str: str | None, final_rsp: float | None) -> bool | None:
 
 
 def add_justification(tpm: pl.DataFrame) -> pl.DataFrame:
-    """
-    Priority:
-      1. NO rate card available  (FW_Rate_Number null/empty)
-      2. Missing Final_Rsp
-      3. ⚠ Quarter mismatch
-      4. Comply        (Final_Rsp ∈ FW_Rate_Number SET, ±0.5)
-      5. NOT Comply
-    """
-    # Pre-compute set-membership boolean using map_elements
     tpm = tpm.with_columns(
         pl.struct(["FW_Rate_Number", "Final_Rsp"])
           .map_elements(
@@ -508,7 +523,7 @@ def build_summary(tpm: pl.DataFrame) -> pl.DataFrame:
 
 
 # ============================================================
-# OUTPUT (unchanged from v1.5)
+# OUTPUT (unchanged)
 # ============================================================
 def save_output(tpm: pl.DataFrame, summary: pl.DataFrame, out_path: Path):
     final_drop = _columns_to_drop(tpm.columns)
@@ -600,7 +615,7 @@ def save_output(tpm: pl.DataFrame, summary: pl.DataFrame, out_path: Path):
 
 
 # ============================================================
-# RICH SUMMARY DISPLAY (unchanged from v1.5)
+# RICH SUMMARY DISPLAY (unchanged)
 # ============================================================
 def display_summary(tpm: pl.DataFrame, out_path: Path):
     total = tpm.height
@@ -698,7 +713,7 @@ def main():
         tpm = add_helper_columns(tpm)
         progress.advance(t1)
 
-        progress.update(t1, description="Building rate-card SET lookup (v1.6)...")
+        progress.update(t1, description="Building rate-card SET lookup (v1.7)...")
         lookup, quarter = build_rate_lookup(rate_path, sheet_name)
         progress.console.print(f"   [dim]Lookup table: {lookup.height:,} (PPG × Period) entries "
                                 f"from {quarter}[/]")
@@ -739,13 +754,12 @@ def main():
             icon = "[green]✅[/]" if rate > 0.8 else "[yellow]⚠️[/]"
             console.print(f"  {icon} {pt:<6s} extraction: {rate:.0%} of {sub.height:,} rows")
 
-    # Show a few sample FW_Rate_Number values to verify SET parsing
     if tpm.height > 0 and "FW_Rate_Number" in tpm.columns:
         sample = (tpm.filter(pl.col("FW_Rate_Number").is_not_null())
                      .select(["Period", "FW_Rate_Number"]).unique()
                      .head(5))
         if sample.height > 0:
-            console.print("\n[bold]Sample FW_Rate_Number SETs (v1.6):[/]")
+            console.print("\n[bold]Sample FW_Rate_Number SETs:[/]")
             for row in sample.iter_rows(named=True):
                 console.print(f"  [dim]{row['Period']:<12s}[/] → [cyan]{row['FW_Rate_Number']}[/]")
 
