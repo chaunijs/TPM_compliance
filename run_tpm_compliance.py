@@ -1,23 +1,25 @@
 """
-TPM × FW Rate Card Compliance Validator — v1.7
+TPM × FW Rate Card Compliance Validator — v1.9
 ==============================================
-v1.7 changes:
-  ✓ Auto-rename original SAP column 'WPRM' → 'RSP Promo'
-    Works whether user manually renamed the column or not:
-      - File has 'RSP Promo' only         → kept as-is
-      - File has 'WPRM' only              → renamed to 'RSP Promo'
-      - File has both (shouldn't happen)  → keeps 'RSP Promo', drops 'WPRM'
-v1.6 features unchanged:
-  ✓ FW_Rate_Number as SET from Excel cols {AJ,L,V,X}/{J,N}/{H,AA}
-  ✓ Slash-delimited values split into SET, 1-decimal numeric format
-  ✓ Comply = Final_Rsp matches any numeric value in SET (±0.5)
-v1.5 features unchanged:
-  ✓ Sales_Org == "7001" filter
-  ✓ Quarter mismatch merged into Justification
-  ✓ Drop unused columns
+v1.9 changes:
+  ✓ Single source of truth: __version__ constant at top of file
+  ✓ Version printed prominently in:
+      - Console banner (with date + notes)
+      - Startup line (easy to grep from logs)
+      - Terminal window title (Windows)
+      - Output xlsx — new "Metadata" sheet
+      - Self-test footer
+v1.8 features unchanged:
+  ✓ "Quarter mismatch" is HIGHEST priority Justification
+  ✓ No emoji on "Quarter mismatch" label
+  ✓ FW_Rate_Number cleared for Quarter mismatch rows
+v1.7: Auto-rename SAP column 'WPRM' → 'RSP Promo'
+v1.6: FW_Rate_Number as SET from Excel cols {AJ,L,V,X}/{J,N}/{H,AA}
+v1.5: Sales_Org=='7001' filter, Quarter mismatch detection
 """
 
 from __future__ import annotations
+import os
 import re
 import sys
 import warnings
@@ -25,11 +27,11 @@ import logging
 import contextlib
 import io as _io
 import traceback
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import polars as pl
-import pandas as pd          # used for messy rate-card layout only
+import pandas as pd
 import questionary
 from questionary import Style as QStyle
 from rich.console import Console
@@ -38,7 +40,21 @@ from rich.table import Table
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
 from rich import box
 
+# ============================================================
+# VERSION (single source of truth — update here only!)
+# ============================================================
+__version__ = "1.9"
+__version_date__ = "2026-06-22"
+__version_notes__ = "Version visibility everywhere"
+
 console = Console()
+
+# Set terminal window title (helpful for debugging multiple instances)
+if os.name == "nt":
+    try:
+        os.system(f"title TPM Compliance v{__version__}")
+    except Exception:
+        pass
 
 warnings.filterwarnings("ignore", message=".*[Cc]ould not determine dtype.*")
 warnings.filterwarnings("ignore", message=".*[Ff]alling back to string.*")
@@ -58,8 +74,6 @@ LOG_NAME = f"TPM_FW_Compliance_Log_{date.today():%Y-%m-%d}.txt"
 DROP_COLUMNS = ["RSP CCBT", "GAP", "promo mechanic"]
 VALID_SALES_ORG = "7001"
 
-# v1.7: Original SAP column names → standard names used in code
-# Format: {original_name: standard_name}
 COLUMN_RENAME_MAP = {
     "WPRM": "RSP Promo",
 }
@@ -94,16 +108,19 @@ QSTYLE = QStyle([
 
 
 # ============================================================
-# UI HELPERS (unchanged)
+# UI HELPERS
 # ============================================================
 def banner():
     console.print()
     console.print(Panel.fit(
-        "[bold cyan]TPM × FW Rate Card Compliance Validator[/]\n"
-        "[dim]v1.7 — Polars + Auto-rename WPRM[/]\n"
-        f"[dim]{WORK_DIR}[/]",
+        f"[bold cyan]TPM × FW Rate Card Compliance Validator[/]\n"
+        f"[bold]Version {__version__}[/]  [dim]({__version_date__})[/]\n"
+        f"[dim italic]{__version_notes__}[/]\n"
+        f"[dim]Working dir: {WORK_DIR}[/]",
         border_style="cyan",
         box=box.DOUBLE,
+        title=f"[bold magenta]v{__version__}[/]",
+        subtitle=f"[dim]Python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}[/]",
     ))
     console.print()
 
@@ -200,29 +217,18 @@ def _columns_to_drop(df_columns: list) -> list:
 
 
 def _apply_column_renames(df: pl.DataFrame) -> pl.DataFrame:
-    """
-    v1.7: Handle SAP-original vs manually-renamed column names.
-    For each (original → standard) pair:
-      - If only original exists  → rename it
-      - If both exist            → drop original, keep standard
-      - If only standard exists  → do nothing
-      - If neither exists        → do nothing (caller will error later)
-    """
     cols = set(df.columns)
     for original, standard in COLUMN_RENAME_MAP.items():
         has_original = original in cols
         has_standard = standard in cols
 
         if has_original and has_standard:
-            # Both columns present — prefer the standard one, drop the original
             df = df.drop(original)
             console.print(f"   [yellow]⚠ Both '{original}' and '{standard}' exist — "
                           f"kept '{standard}', dropped '{original}'[/]")
         elif has_original and not has_standard:
-            # Only original present — rename it
             df = df.rename({original: standard})
             console.print(f"   [dim]Renamed column: '{original}' → '{standard}'[/]")
-        # else: only standard, or neither — nothing to do here
     return df
 
 
@@ -236,8 +242,6 @@ def load_tpm(tpm_path: Path) -> pl.DataFrame:
 
     initial_rows = df.height
 
-    # v1.7: Auto-rename SAP-original column names BEFORE drop check
-    # so that 'WPRM' doesn't accidentally get caught by any drop filter
     df = _apply_column_renames(df)
 
     cols_to_drop = _columns_to_drop(df.columns)
@@ -274,7 +278,6 @@ def add_helper_columns(df: pl.DataFrame) -> pl.DataFrame:
                 "TPM_InvestmentDescription", "RSP Promo"]
     missing = [c for c in required if c not in df.columns]
     if missing:
-        # v1.7: helpful hint if RSP Promo is missing
         hint = ""
         if "RSP Promo" in missing and "WPRM" in df.columns:
             hint = "\n[Hint] Column 'WPRM' was found but not renamed. Check COLUMN_RENAME_MAP."
@@ -322,7 +325,6 @@ def add_helper_columns(df: pl.DataFrame) -> pl.DataFrame:
         .alias("Period")
     )
 
-    # Cast RSP Promo to Float64 in case it came in as string
     df = df.with_columns(
         pl.col("RSP Promo").cast(pl.Float64, strict=False).alias("RSP Promo")
     )
@@ -348,7 +350,7 @@ def add_helper_columns(df: pl.DataFrame) -> pl.DataFrame:
 
 
 # ============================================================
-# v1.6: Parse cell into SET
+# v1.6: SET parsing
 # ============================================================
 def parse_set_cell(v) -> list:
     if pd.isna(v):
@@ -473,7 +475,20 @@ def _final_in_set(rate_str: str | None, final_rsp: float | None) -> bool | None:
     return False
 
 
+# ============================================================
+# v1.8: Justification with Quarter mismatch priority
+# ============================================================
 def add_justification(tpm: pl.DataFrame) -> pl.DataFrame:
+    """
+    Priority (v1.8 ORDER):
+      1. Quarter mismatch       (Q_Y != RC_S, both not null) ← HIGHEST
+      2. NO rate card available (FW_Rate_Number null/empty)
+      3. Missing Final_Rsp      (Final_Rsp null)
+      4. Comply                 (Final_Rsp ∈ FW_Rate_Number SET, ±0.5)
+      5. NOT Comply             (otherwise)
+    
+    Also: clear FW_Rate_Number for Quarter mismatch rows.
+    """
     tpm = tpm.with_columns(
         pl.struct(["FW_Rate_Number", "Final_Rsp"])
           .map_elements(
@@ -483,20 +498,31 @@ def add_justification(tpm: pl.DataFrame) -> pl.DataFrame:
     )
 
     tpm = tpm.with_columns(
-        pl.when(pl.col("FW_Rate_Number").is_null() | (pl.col("FW_Rate_Number") == ""))
+        (pl.col("Quarter_Year").is_not_null()
+         & pl.col("Rate_Card_Source").is_not_null()
+         & (pl.col("Quarter_Year") != pl.col("Rate_Card_Source")))
+        .alias("_qtr_mismatch")
+    )
+
+    tpm = tpm.with_columns(
+        pl.when(pl.col("_qtr_mismatch"))
+        .then(pl.lit(None, dtype=pl.Utf8))
+        .otherwise(pl.col("FW_Rate_Number"))
+        .alias("FW_Rate_Number")
+    )
+
+    tpm = tpm.with_columns(
+        pl.when(pl.col("_qtr_mismatch"))
+            .then(pl.lit("Quarter mismatch"))
+        .when(pl.col("FW_Rate_Number").is_null() | (pl.col("FW_Rate_Number") == ""))
             .then(pl.lit("NO rate card available"))
         .when(pl.col("Final_Rsp").is_null())
             .then(pl.lit("Missing Final_Rsp"))
-        .when(
-            pl.col("Quarter_Year").is_not_null()
-            & pl.col("Rate_Card_Source").is_not_null()
-            & (pl.col("Quarter_Year") != pl.col("Rate_Card_Source"))
-        ).then(pl.lit("⚠ Quarter mismatch"))
         .when(pl.col("_in_set") == True)
             .then(pl.lit("Comply"))
         .otherwise(pl.lit("NOT Comply"))
         .alias("Justification")
-    ).drop("_in_set")
+    ).drop(["_in_set", "_qtr_mismatch"])
 
     return tpm
 
@@ -509,11 +535,11 @@ def build_summary(tpm: pl.DataFrame) -> pl.DataFrame:
     summary = tpm.group_by(grp).agg([
         (pl.col("Justification") == "Comply").sum().alias("Comply"),
         (pl.col("Justification") == "NOT Comply").sum().alias("NOT Comply"),
-        (pl.col("Justification") == "⚠ Quarter mismatch").sum().alias("⚠ Quarter mismatch"),
+        (pl.col("Justification") == "Quarter mismatch").sum().alias("Quarter mismatch"),
         (pl.col("Justification") == "NO rate card available").sum().alias("NO rate card available"),
         (pl.col("Justification") == "Missing Final_Rsp").sum().alias("Missing Final_Rsp"),
     ]).with_columns(
-        (pl.col("Comply") + pl.col("NOT Comply") + pl.col("⚠ Quarter mismatch") +
+        (pl.col("Comply") + pl.col("NOT Comply") + pl.col("Quarter mismatch") +
          pl.col("NO rate card available") + pl.col("Missing Final_Rsp")).alias("Total")
     ).with_columns(
         (pl.col("Comply") / pl.col("Total") * 100).round(1).alias("Comply_%")
@@ -523,7 +549,7 @@ def build_summary(tpm: pl.DataFrame) -> pl.DataFrame:
 
 
 # ============================================================
-# OUTPUT (unchanged)
+# OUTPUT (v1.9: Metadata sheet added)
 # ============================================================
 def save_output(tpm: pl.DataFrame, summary: pl.DataFrame, out_path: Path):
     final_drop = _columns_to_drop(tpm.columns)
@@ -552,6 +578,43 @@ def save_output(tpm: pl.DataFrame, summary: pl.DataFrame, out_path: Path):
 
     import xlsxwriter
     with xlsxwriter.Workbook(out_path) as wb:
+        # v1.9: Metadata sheet (leftmost tab, for traceability)
+        meta_df = pl.DataFrame({
+            "Property": [
+                "Tool Name",
+                "Version",
+                "Version Date",
+                "Version Notes",
+                "Run Timestamp",
+                "Python Version",
+                "Total Rows Processed",
+                "Compliance Categories",
+                "Generated By (Windows User)",
+                "Working Directory",
+            ],
+            "Value": [
+                "TPM × FW Rate Card Compliance Validator",
+                f"v{__version__}",
+                __version_date__,
+                __version_notes__,
+                f"{datetime.now():%Y-%m-%d %H:%M:%S}",
+                f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+                f"{tpm.height:,}",
+                ", ".join(sorted(tpm["Justification"].unique().to_list())),
+                f"{os.environ.get('USERNAME', 'unknown')}",
+                str(WORK_DIR),
+            ],
+        })
+        meta_df.write_excel(
+            workbook=wb,
+            worksheet="Metadata",
+            autofit=True,
+            header_format={
+                "bold": True, "bg_color": "#305496",
+                "font_color": "white", "align": "left",
+            },
+        )
+
         tpm.write_excel(
             workbook=wb,
             worksheet="Compliance",
@@ -569,7 +632,7 @@ def save_output(tpm: pl.DataFrame, summary: pl.DataFrame, out_path: Path):
                      "format": {"bg_color": "#C6EFCE", "font_color": "#006100"}},
                     {"type": "cell", "criteria": "==", "value": '"NOT Comply"',
                      "format": {"bg_color": "#FFC7CE", "font_color": "#9C0006"}},
-                    {"type": "cell", "criteria": "==", "value": '"⚠ Quarter mismatch"',
+                    {"type": "cell", "criteria": "==", "value": '"Quarter mismatch"',
                      "format": {"bg_color": "#FCE4D6", "font_color": "#974706", "bold": True}},
                     {"type": "cell", "criteria": "==", "value": '"NO rate card available"',
                      "format": {"bg_color": "#FFEB9C", "font_color": "#9C5700"}},
@@ -615,13 +678,13 @@ def save_output(tpm: pl.DataFrame, summary: pl.DataFrame, out_path: Path):
 
 
 # ============================================================
-# RICH SUMMARY DISPLAY (unchanged)
+# RICH SUMMARY DISPLAY
 # ============================================================
 def display_summary(tpm: pl.DataFrame, out_path: Path):
     total = tpm.height
     counts = tpm["Justification"].value_counts().sort("count", descending=True)
 
-    table = Table(title="📊 Justification Breakdown",
+    table = Table(title=f"📊 Justification Breakdown  [dim](v{__version__})[/]",
                   box=box.ROUNDED, header_style="bold cyan")
     table.add_column("Category", style="bold")
     table.add_column("Count", justify="right")
@@ -631,7 +694,7 @@ def display_summary(tpm: pl.DataFrame, out_path: Path):
     color_map = {
         "Comply":                  "green",
         "NOT Comply":              "red",
-        "⚠ Quarter mismatch":      "dark_orange",
+        "Quarter mismatch":        "dark_orange",
         "NO rate card available":  "yellow",
         "Missing Final_Rsp":       "white",
     }
@@ -657,10 +720,11 @@ def display_summary(tpm: pl.DataFrame, out_path: Path):
         f"[green]✅ Output saved successfully![/]\n\n"
         f"📄 [bold]{out_path.name}[/]\n"
         f"📁 [dim]{out_path.parent}[/]\n"
-        f"💾 [dim]{size_mb:.1f} MB · {total:,} rows[/]\n\n"
+        f"💾 [dim]{size_mb:.1f} MB · {total:,} rows · v{__version__}[/]\n\n"
         f"[dim]Sheets:[/]\n"
+        f"  • [cyan]Metadata[/]   — version & run info (v1.9 NEW)\n"
         f"  • [cyan]Compliance[/] — all rows, color-coded\n"
-        f"  • [cyan]Summary[/]     — pivot by Customer × Brand × Period",
+        f"  • [cyan]Summary[/]    — pivot by Customer × Brand × Period",
         border_style="green",
         box=box.ROUNDED,
     ))
@@ -671,6 +735,12 @@ def display_summary(tpm: pl.DataFrame, out_path: Path):
 # ============================================================
 def main():
     banner()
+
+    # v1.9: Print version line — easy to grep from logs
+    console.print(f"[dim]>>> TPM_Compliance v{__version__} | "
+                  f"Date: {date.today():%Y-%m-%d} | "
+                  f"Time: {datetime.now():%H:%M:%S} | "
+                  f"PID: {os.getpid()} <<<[/]\n")
 
     files = list_xlsx_files(WORK_DIR)
     if not files:
@@ -713,7 +783,7 @@ def main():
         tpm = add_helper_columns(tpm)
         progress.advance(t1)
 
-        progress.update(t1, description="Building rate-card SET lookup (v1.7)...")
+        progress.update(t1, description="Building rate-card SET lookup...")
         lookup, quarter = build_rate_lookup(rate_path, sheet_name)
         progress.console.print(f"   [dim]Lookup table: {lookup.height:,} (PPG × Period) entries "
                                 f"from {quarter}[/]")
@@ -723,7 +793,7 @@ def main():
         tpm = attach_rate(tpm, lookup, quarter)
         progress.advance(t1)
 
-        progress.update(t1, description="Computing Justification (SET membership)...")
+        progress.update(t1, description="Computing Justification (v1.8 priority)...")
         tpm = add_justification(tpm)
         progress.advance(t1)
 
@@ -741,6 +811,9 @@ def main():
     icon = "[green]✅[/]" if no_rc < 0.95 else "[red]❌[/]"
     console.print(f"  {icon} NO-rate-card share: {no_rc:.1%}")
 
+    qm = (tpm["Justification"] == "Quarter mismatch").mean()
+    console.print(f"  [dim]Quarter mismatch share: {qm:.1%}[/]")
+
     bogo = tpm.filter(pl.col("Promo_Type") == "BOGO")
     if bogo.height:
         ok = bogo["Promotion_Price"].is_null().all()
@@ -754,16 +827,26 @@ def main():
             icon = "[green]✅[/]" if rate > 0.8 else "[yellow]⚠️[/]"
             console.print(f"  {icon} {pt:<6s} extraction: {rate:.0%} of {sub.height:,} rows")
 
+    qm_rows = tpm.filter(pl.col("Justification") == "Quarter mismatch")
+    if qm_rows.height > 0:
+        all_blank = qm_rows["FW_Rate_Number"].is_null().all()
+        icon = "[green]✅[/]" if all_blank else "[red]❌[/]"
+        console.print(f"  {icon} Quarter mismatch FW_Rate_Number cleared: {all_blank} "
+                      f"({qm_rows.height:,} rows)")
+
     if tpm.height > 0 and "FW_Rate_Number" in tpm.columns:
         sample = (tpm.filter(pl.col("FW_Rate_Number").is_not_null())
                      .select(["Period", "FW_Rate_Number"]).unique()
                      .head(5))
         if sample.height > 0:
-            console.print("\n[bold]Sample FW_Rate_Number SETs:[/]")
+            console.print("\n[bold]Sample FW_Rate_Number SETs (non-mismatch rows):[/]")
             for row in sample.iter_rows(named=True):
                 console.print(f"  [dim]{row['Period']:<12s}[/] → [cyan]{row['FW_Rate_Number']}[/]")
 
-    console.print("\n[bold green]🎉 Done![/]\n")
+    # v1.9: Final version stamp
+    console.print(f"\n[bold green]🎉 Done![/]  "
+                  f"[bold]TPM_Compliance v{__version__}[/] · "
+                  f"[dim]{date.today():%Y-%m-%d} {datetime.now():%H:%M:%S}[/]\n")
 
 
 # ============================================================
@@ -771,10 +854,10 @@ if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        console.print("\n[yellow]Cancelled by user[/]")
+        console.print(f"\n[yellow]Cancelled by user (v{__version__})[/]")
         sys.exit(0)
     except Exception as e:
-        console.print(f"\n[red bold]❌ Error: {e}[/]")
-        console.print(Panel(traceback.format_exc(), title="Traceback",
+        console.print(f"\n[red bold]❌ Error (v{__version__}): {e}[/]")
+        console.print(Panel(traceback.format_exc(), title=f"Traceback — v{__version__}",
                              border_style="red", box=box.ROUNDED))
         sys.exit(1)
