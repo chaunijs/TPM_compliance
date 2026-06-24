@@ -1,0 +1,60 @@
+Step 1 : 
+Manual Validate that the required columns exist:
+  - `PromoGroupProductDesc`
+  - `Instore_Start`
+  - `Instore_End`
+  - `TPM_InvestmentDescription`
+  - `RSP Promo`
+and then
+1.0 KEEP row that column "CD_Category" = "FAB SOL" (remove other records)
+1.1  If column `RSP Promo` is missing but column `WPRM` exists, then rename column 'WPRM' to 'RSP Promo'
+1.2 Create Helper Columns
+1.2.1 Create column 'Promo_Type' from conditions
+    IF These text contains in column 'TPM_InvestmentDescription'
+      IF "BOGO" then "BOGO"
+      IF "2F1" then "2F1"
+      IF "LAKSUE" then "LAKSUE"
+      IF "_PO" then "PO"
+1.2.2 Create column 'Promotion_Price' from conditions
+    Check value in column 'Promo_Type'
+    IF "LAKSUE" then  Find Number on pattern LAKSUE{Number}
+    IF value in {"PO", "2F1"} then Find Number on pattern 2F1 PO{Number},PO{Number}
+    Otherwise None
+
+1.2.3 Create column 'DateRange_Days' by calculate from column ("Instore_End") - column("Instore_Start")
+1.2.4 Create column 'Period'
+{
+  Weekly = 7,
+  Bi-weekly = 14,
+  Tri-weekly = 21,
+  Monthly =30
+}
+from Number in column "DateRange_Days" with closest value among these.
+
+1.2.5 cast column "RSP Promo" to Numeric
+1.2.6 Create column "Final_Rsp"
+when "RSP Promo" is not null and > 0
+then use value from "RSP Promo"
+otherwise use value from column "Promotion_Price"
+1.2.7 Create column "Quarter_Year" based on column "Instore_Start" 
+1.2.8 Remove not interest "Quarter_Year" from sheet 
+  example: I want to keep "Q3 2026" remove records which is not belong to.
+Step 2: Find value on Rate Card
+2.0 Specify the sheet name of Rate Card
+example: The Rate Card is in Sheet "Rate Card Q3, 2026 adjust" refers to Rate Card
+and Specify the sheet "Raw Data" from "TPM"
+2.1 Find Index if match column "PromoGroupProductDesc" from "TPM" sheet and column B ("PPG") from "Rate Card" sheet and Get the value from columns in Sheet from "Rate Card" based on 
+value in column "Period" from "TPM"
+IF 'Weekly' then AJ, L, V, X
+IF 'Bi-weekly' or 'Tri-weekly' then J, N
+IF 'Monthly' then H, AA
+the value from separated column needs to CONCAT with "/" separator
+sometimes value in dependent column may contains "Number / 2F1"
+IF Found index in PPG but Final Value is Empty then RETURN "Found"
+create column "Rate_Number" in "TPM" sheet and store that value
+2.2 Create column "Justification" with check on
+IF "Rate_Number" is "NOT FOUND" then "NO rate card available"
+IF "Final_Rsp" is null then "Missing Final_Rsp"
+IF "Final_Rsp" is not null and "Rate_Number" = "FOUND" then "Not Comply"
+IF "Rate_Number" contains value "Final_Rsp" then "Comply"
+Otherwise "Not Comply"
