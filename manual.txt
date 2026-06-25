@@ -15,11 +15,9 @@ and then
       IF "2F1" then "2F1"
       IF "LAKSUE" then "LAKSUE"
       IF "_PO" then "PO"
-1.2.2 Create column 'Promotion_Price' from conditions
-    Check value in column 'Promo_Type'
-    IF "LAKSUE" then  Find Number on pattern LAKSUE{Number}
-    IF value in {"PO", "2F1"} then Find Number on pattern 2F1 PO{Number},PO{Number}
-    Otherwise None
+1.2.2 Create column 'Promotion_Price' from column 'TPM_InvestmentDescription'
+    CONTAIN TEXT which of the following (BOGO, 2F1 PO{Number}, LAKSUE{Number}, PO{Number})
+Extract as Number.
 
 1.2.3 Create column 'DateRange_Days' by calculate from column ("Instore_End") - column("Instore_Start")
 1.2.4 Create column 'Period'
