@@ -1,24 +1,21 @@
 """
-TPM × Rate Card Compliance Validator — v1.9
-==============================================
-v1.9 changes:
-  ✓ Single source of truth: __version__ constant at top of file
-  ✓ Version printed prominently in:
-      - Console banner (with date + notes)
-      - Startup line (easy to grep from logs)
-      - Terminal window title (Windows)
-      - Output xlsx — new "Metadata" sheet
-      - Self-test footer
-v1.8 features unchanged:
-  ✓ "Quarter mismatch" is HIGHEST priority Justification
-  ✓ No emoji on "Quarter mismatch" label
-  ✓ Rate_Number cleared for Quarter mismatch rows
-v1.7: Auto-rename SAP column 'WPRM' → 'RSP Promo'
-v1.6: Rate_Number as SET from Excel cols {AJ,L,V,X}/{J,N}/{H,AA}
-v1.5: Sales_Org=='7001' filter, Quarter mismatch detection
-"""
+TPM × FW Rate Card Compliance Validator (FabSol) — v2.1
+Date: 2026-06-29
 
+v2.1 changes:
+✓ NEW: Filter CD_Category == "FAB SOL" (replaces Sales_Org=='7001' filter)
+✓ NEW: Filter Quarter_Year == <sheet's Q_Y> (hard filter, like H&H)
+✓ Justification "Quarter mismatch" no longer needed (rows pre-filtered)
+
+v2.0 features preserved:
+✓ TPM sheet picker
+✓ Rich progress bars + emoji status lines (H&H-style UX)
+✓ Rate Card SET indexing from {AJ,L,V,X}/{J,N}/{H,AA}
+✓ WPRM → RSP Promo auto-rename
+✓ Single-source version constant in banner / title / Metadata sheet
+"""
 from __future__ import annotations
+
 import os
 import re
 import sys
@@ -27,62 +24,69 @@ import logging
 import contextlib
 import io as _io
 import traceback
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 
 import polars as pl
 import pandas as pd
 import questionary
 from questionary import Style as QStyle
+from openpyxl import load_workbook
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
+from rich.progress import (
+    Progress, SpinnerColumn, TextColumn, BarColumn,
+    TimeElapsedColumn, MofNCompleteColumn,
+)
 from rich import box
 
 # ============================================================
-# VERSION (single source of truth — update here only!)
+# VERSION
 # ============================================================
-__version__ = "1.9"
-__version_date__ = "2026-06-22"
-__version_notes__ = "Version visibility everywhere"
+__version__       = "2.1"
+__version_date__  = "2026-06-29"
+__version_notes__ = "Filter CD_Category=='FAB SOL' + Quarter_Year==<sheet Q_Y>"
 
 console = Console()
 
-# Set terminal window title (helpful for debugging multiple instances)
 if os.name == "nt":
     try:
-        os.system(f"title TPM Compliance v{__version__}")
+        os.system(f"title TPM FabSol Compliance v{__version__}")
     except Exception:
         pass
 
-warnings.filterwarnings("ignore", message=".*[Cc]ould not determine dtype.*")
-warnings.filterwarnings("ignore", message=".*[Ff]alling back to string.*")
+warnings.filterwarnings("ignore")
 logging.getLogger("polars").setLevel(logging.ERROR)
 
 # ============================================================
-# CONFIG
+# PATH
 # ============================================================
 if getattr(sys, "frozen", False):
     WORK_DIR = Path(sys.executable).parent
 else:
     WORK_DIR = Path(__file__).parent
 
-OUT_NAME = f"TPM_Rate_Card_Compliance_Output_{date.today():%Y-%m-%d}.xlsx"
-LOG_NAME = f"TPM_Rate_Card_Compliance_Log_{date.today():%Y-%m-%d}.txt"
+# ============================================================
+# CONFIG
+# ============================================================
+CD_CATEGORY_KEEP = "FAB SOL"
+TOLERANCE = 0.5
 
 DROP_COLUMNS = ["RSP CCBT", "GAP", "promo mechanic"]
-VALID_SALES_ORG = "7001"
 
-COLUMN_RENAME_MAP = {
-    "WPRM": "RSP Promo",
-}
+COLUMN_RENAME_MAP = {"WPRM": "RSP Promo"}
 
-# ============================================================
-# v1.6: Excel column SET mapping for Rate_Number
-# ============================================================
+REQUIRED_COLUMNS = [
+    "PromoGroupProductDesc",
+    "Instore_Start",
+    "Instore_End",
+    "TPM_InvestmentDescription",
+    "RSP Promo",
+]
+
+# Excel column SET mapping for Rate_Number (v1.6 spec)
 def col_letter_to_idx(letter: str) -> int:
-    """Convert Excel column letter to 0-based index. A=0, Z=25, AA=26, AJ=35."""
     letter = letter.upper().strip()
     n = 0
     for c in letter:
@@ -96,16 +100,24 @@ PERIOD_COL_MAP = {
     "Monthly":    [col_letter_to_idx(c) for c in ("H", "AA")],
 }
 
+PERIOD_BUCKETS = {"Weekly": 7, "Bi-weekly": 14, "Tri-weekly": 21, "Monthly": 30}
+
+COLOR_MAP_HEX = {
+    "Comply":                 "#C6EFCE",
+    "Not Comply":             "#FFC7CE",
+    "NO rate card available": "#FFEB9C",
+    "Missing Final_Rsp":      "#D9D9D9",
+}
+
 QSTYLE = QStyle([
     ("qmark",       "fg:#00aaff bold"),
     ("question",    "bold"),
-    ("answer",      "fg:#00ff88 bold"),
+    ("answer",      "fg:#00aaff bold"),
     ("pointer",     "fg:#ff8800 bold"),
-    ("highlighted", "fg:#00aaff bold"),
-    ("selected",    "fg:#00ff88"),
+    ("highlighted", "fg:#00aaff bold noreverse"),
+    ("selected",    "noinherit"),
     ("instruction", "fg:#888888 italic"),
 ])
-
 
 # ============================================================
 # UI HELPERS
@@ -113,93 +125,81 @@ QSTYLE = QStyle([
 def banner():
     console.print()
     console.print(Panel.fit(
-        f"[bold cyan]TPM × Rate Card Compliance Validator[/]\n"
+        f"[bold cyan]TPM × FW Rate Card Compliance Validator (FabSol)[/]\n"
         f"[bold]Version {__version__}[/]  [dim]({__version_date__})[/]\n"
         f"[dim italic]{__version_notes__}[/]\n"
         f"[dim]Working dir: {WORK_DIR}[/]",
         border_style="cyan",
         box=box.DOUBLE,
         title=f"[bold magenta]v{__version__}[/]",
-        subtitle=f"[dim]Python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}[/]",
+        subtitle=f"[dim]Python {sys.version_info.major}.{sys.version_info.minor}[/]",
     ))
     console.print()
 
 
-def list_xlsx_files(folder: Path) -> list:
-    files = sorted([
+def list_xlsx_files(folder: Path) -> list[Path]:
+    return sorted([
         p for p in folder.iterdir()
         if p.suffix.lower() in (".xlsx", ".xlsb", ".xls")
         and not p.name.startswith("~$")
+        and not p.name.startswith("FabSol_Compliance_")
+        and not p.name.startswith("TPM_FabSol_Compliance_")
         and not p.name.startswith("TPM_Rate_Card_Compliance_Output")
         and p.is_file()
     ], key=lambda p: p.stat().st_mtime, reverse=True)
-    return files
 
 
-def pick_file(files: list, prompt: str, suggest_keyword: str = "") -> Path:
-    if suggest_keyword:
-        kw = suggest_keyword.lower()
-        matching = [f for f in files if kw in f.name.lower()]
-        others   = [f for f in files if kw not in f.name.lower()]
-        files    = matching + others
-
-    choices = []
-    for i, f in enumerate(files, 1):
-        size_kb = f.stat().st_size / 1024
-        mtime   = pd.Timestamp(f.stat().st_mtime, unit="s").strftime("%Y-%m-%d %H:%M")
-        size_str = f"{size_kb/1024:6.1f} MB" if size_kb > 1024 else f"{size_kb:6.0f} KB"
-        label = f"{i:>2}. {f.name:<55s}  {size_str}  {mtime}"
-        if suggest_keyword and suggest_keyword.lower() in f.name.lower():
-            label = "→ " + label
-        else:
-            label = "  " + label
-        choices.append(questionary.Choice(label, value=f))
-
+def pick_file(files: list[Path], prompt: str) -> Path:
+    choices = [questionary.Choice(title=f.name, value=f) for f in files]
     answer = questionary.select(
-        prompt,
-        choices=choices,
-        instruction="(↑↓ arrows + Enter, Ctrl-C to cancel)",
-        style=QSTYLE,
-        use_shortcuts=False,
+        prompt, choices=choices, style=QSTYLE,
+        instruction="(↑/↓ to move, Enter to select, Esc to cancel)",
     ).ask()
     if answer is None:
-        console.print("[red]Cancelled.[/]")
+        console.print("[yellow]Cancelled by user[/]")
         sys.exit(0)
     return answer
 
 
-def pick_sheet(rate_path: Path) -> str:
-    from openpyxl import load_workbook
-    wb = load_workbook(rate_path, read_only=True, data_only=False)
+def pick_sheet(prompt: str, sheets: list[str]) -> str:
+    answer = questionary.select(
+        prompt, choices=sheets, style=QSTYLE,
+        instruction="(↑/↓ to move, Enter to select, Esc to cancel)",
+    ).ask()
+    if answer is None:
+        console.print("[yellow]Cancelled by user[/]")
+        sys.exit(0)
+    return answer
+
+
+def get_sheet_names(path: Path) -> list[str]:
+    if path.suffix.lower() == ".xlsb":
+        from pyxlsb import open_workbook
+        with open_workbook(path) as wb:
+            return wb.sheets
+    wb = load_workbook(path, read_only=True, data_only=False)
     sheets = wb.sheetnames
     wb.close()
+    return sheets
 
-    def sort_key(s):
-        m = re.search(r"Q\s*([1-4])[\s,_-]*\s*(20\d{2})", s, re.IGNORECASE)
-        if m:
-            return (int(m.group(2)), int(m.group(1)))
-        return (-1, -1)
 
-    sheets_sorted = sorted(sheets, key=sort_key, reverse=True)
+def derive_target_quarter(sheet_name: str) -> str | None:
+    """Extract 'Q# YYYY' from a sheet name like 'Q3 2026' or 'Rate Card Q3-2026'."""
+    m = re.search(r"Q\s*(\d).*?(\d{4})", sheet_name)
+    return f"Q{m.group(1)} {m.group(2)}" if m else None
 
-    choices = []
-    for i, s in enumerate(sheets_sorted, 1):
-        m = re.search(r"Q\s*([1-4])[\s,_-]*\s*(20\d{2})", s, re.IGNORECASE)
-        tag = f"  [Q{m.group(1)} {m.group(2)}]" if m else ""
-        prefix = "→ " if i == 1 else "  "
-        choices.append(questionary.Choice(f"{prefix}{i:>2}. {s}{tag}", value=s))
 
-    answer = questionary.select(
-        f"📊 Which sheet from {rate_path.name}?",
-        choices=choices,
-        instruction="(↑↓ arrows + Enter, latest quarter pre-selected)",
-        style=QSTYLE,
-    ).ask()
-    if answer is None:
-        console.print("[red]Cancelled.[/]")
-        sys.exit(0)
-    return answer
-
+def make_progress() -> Progress:
+    return Progress(
+        SpinnerColumn(style="cyan"),
+        TextColumn("[bold blue]{task.description}"),
+        BarColumn(bar_width=40),
+        MofNCompleteColumn(),
+        TextColumn("[dim]•[/]"),
+        TimeElapsedColumn(),
+        console=console,
+        transient=False,
+    )
 
 # ============================================================
 # POLARS PROCESSING
@@ -219,148 +219,154 @@ def _columns_to_drop(df_columns: list) -> list:
 def _apply_column_renames(df: pl.DataFrame) -> pl.DataFrame:
     cols = set(df.columns)
     for original, standard in COLUMN_RENAME_MAP.items():
-        has_original = original in cols
-        has_standard = standard in cols
-
-        if has_original and has_standard:
-            df = df.drop(original)
-            console.print(f"   [yellow]⚠ Both '{original}' and '{standard}' exist — "
-                          f"kept '{standard}', dropped '{original}'[/]")
-        elif has_original and not has_standard:
+        if original in cols and standard not in cols:
             df = df.rename({original: standard})
-            console.print(f"   [dim]Renamed column: '{original}' → '{standard}'[/]")
+            console.print(f"   🔁 Renamed [yellow]{original}[/] → [cyan]{standard}[/]")
     return df
 
 
-def load_tpm(tpm_path: Path) -> pl.DataFrame:
+def load_tpm(tpm_path: Path, sheet_name: str, progress: Progress) -> pl.DataFrame:
+    task = progress.add_task("Loading TPM file (calamine)", total=1)
     if tpm_path.suffix.lower() == ".xlsb":
-        df_pd = pd.read_excel(tpm_path, sheet_name=0, engine="pyxlsb")
+        df_pd = pd.read_excel(tpm_path, sheet_name=sheet_name, engine="pyxlsb")
         df = pl.from_pandas(df_pd)
     else:
         with contextlib.redirect_stderr(_io.StringIO()):
-            df = pl.read_excel(tpm_path, sheet_id=1, engine="calamine")
-
-    initial_rows = df.height
-
-    df = _apply_column_renames(df)
-
-    cols_to_drop = _columns_to_drop(df.columns)
-    if cols_to_drop:
-        df = df.drop(cols_to_drop)
-        console.print(f"   [dim]Dropped {len(cols_to_drop)} unused column(s): "
-                      f"{', '.join(cols_to_drop)}[/]")
-
-    if "Sales_Org" in df.columns:
-        df = df.with_columns(
-            pl.col("Sales_Org").cast(pl.Utf8).str.strip_chars().alias("_sales_org_str")
-        )
-        before = df.height
-        df = df.filter(pl.col("_sales_org_str") == VALID_SALES_ORG)
-        df = df.drop("_sales_org_str")
-        dropped = before - df.height
-        if dropped > 0:
-            console.print(f"   [dim]Filtered Sales_Org=='{VALID_SALES_ORG}': "
-                          f"dropped {dropped:,} irrelevant rows ({before:,} → {df.height:,})[/]")
-    else:
-        console.print(f"   [yellow]⚠ Sales_Org column not found — skipping filter[/]")
-
-    if df.height == 0:
-        raise RuntimeError(
-            f"After filtering Sales_Org=='{VALID_SALES_ORG}', no rows remain. "
-            f"Original file had {initial_rows:,} rows."
-        )
-
+            df = pl.read_excel(tpm_path, sheet_name=sheet_name, engine="calamine")
+    progress.update(task, advance=1)
     return df
 
 
-def add_helper_columns(df: pl.DataFrame) -> pl.DataFrame:
-    required = ["PromoGroupProductDesc", "Instore_Start", "Instore_End",
-                "TPM_InvestmentDescription", "RSP Promo"]
-    missing = [c for c in required if c not in df.columns]
+def validate_and_filter(df: pl.DataFrame, progress: Progress) -> pl.DataFrame:
+    """
+    Step 1: rename WPRM → RSP Promo + check required cols.
+    Step 2: filter CD_Category == 'FAB SOL'.
+    (Quarter_Year filter is applied AFTER helper columns are built.)
+    """
+    task = progress.add_task("Validating & filtering", total=2)
+
+    # 1) Rename + required columns check
+    df = _apply_column_renames(df)
+    missing = [c for c in REQUIRED_COLUMNS if c not in df.columns]
     if missing:
         hint = ""
         if "RSP Promo" in missing and "WPRM" in df.columns:
-            hint = "\n[Hint] Column 'WPRM' was found but not renamed. Check COLUMN_RENAME_MAP."
-        raise KeyError(f"Missing required columns: {missing}{hint}")
+            hint = "\n[Hint] 'WPRM' present but not renamed."
+        console.print(f"[red]❌ Missing required columns:[/] {missing}{hint}")
+        sys.exit(1)
+    progress.update(task, advance=1)
 
-    df = df.with_columns(
-        pl.col("TPM_InvestmentDescription").cast(pl.Utf8)
-          .str.to_uppercase().alias("_an_upper")
-    ).with_columns(
-        pl.when(pl.col("_an_upper").str.contains("BOGO",   literal=True)).then(pl.lit("BOGO"))
-        .when(pl.col("_an_upper").str.contains("2F1",    literal=True)).then(pl.lit("2F1"))
-        .when(pl.col("_an_upper").str.contains("LAKSUE", literal=True)).then(pl.lit("LAKSUE"))
-        .when(pl.col("_an_upper").str.contains("_PO",    literal=True)).then(pl.lit("PO"))
-        .otherwise(pl.lit(""))
-        .alias("Promo_Type")
+    # 2) CD_Category filter
+    if "CD_Category" not in df.columns:
+        console.print("[red]❌ Column 'CD_Category' not found in TPM[/]")
+        sys.exit(1)
+    before = df.height
+    df = df.filter(
+        pl.col("CD_Category").cast(pl.Utf8).str.strip_chars() == CD_CATEGORY_KEEP
     )
+    console.print(f"   🎯 CD_Category=='{CD_CATEGORY_KEEP}': kept {df.height:,} / {before:,}")
+    progress.update(task, advance=1)
+    return df
 
+
+def _extract_promo_type(text):
+    if not isinstance(text, str): return None
+    t = text.upper()
+    if "BOGO"   in t: return "BOGO"
+    if "2F1"    in t: return "2F1"
+    if "LAKSUE" in t: return "LAKSUE"
+    if "_PO"    in t: return "PO"
+    return None
+
+
+def _quarter_year(dt):
+    if dt is None: return None
+    try:
+        return f"Q{((dt.month - 1) // 3) + 1} {dt.year}"
+    except Exception:
+        return None
+
+
+def _closest_period(days):
+    if days is None: return None
+    try: d = int(days)
+    except (TypeError, ValueError): return None
+    return min(PERIOD_BUCKETS, key=lambda k: abs(PERIOD_BUCKETS[k] - d))
+
+
+def add_helper_columns(df: pl.DataFrame, target_quarter: str | None,
+                       progress: Progress) -> pl.DataFrame:
+    """
+    Adds Promo_Type, Final_Rsp, Duration_Days, Period, Quarter_Year,
+    then HARD-FILTERS to Quarter_Year == target_quarter, then prints counts.
+    """
+    task = progress.add_task("Building helper columns", total=8)
+
+    # 1. Promo_Type
     df = df.with_columns(
-        pl.when(pl.col("Promo_Type") == "LAKSUE")
-            .then(pl.col("_an_upper").str.extract(r"_LAKSUE ?(\d+)", 1)
-                                       .cast(pl.Float64, strict=False))
-        .when(pl.col("Promo_Type").is_in(["PO", "2F1"]))
-            .then(pl.col("_an_upper").str.extract(r"_PO ?(\d+)", 1)
-                                       .cast(pl.Float64, strict=False))
-        .otherwise(None)
-        .alias("Promotion_Price")
-    )
+        pl.col("TPM_InvestmentDescription")
+          .map_elements(_extract_promo_type, return_dtype=pl.Utf8)
+          .alias("Promo_Type")
+    ); progress.update(task, advance=1)
 
-    df = df.with_columns([
-        pl.col("Instore_Start").cast(pl.Datetime, strict=False),
-        pl.col("Instore_End").cast(pl.Datetime,   strict=False),
-    ])
-
+    # 2. Final_Rsp
     df = df.with_columns(
-        (pl.col("Instore_End") - pl.col("Instore_Start"))
-        .dt.total_days().alias("DateRange_Days")
-    )
+        pl.col("RSP Promo").cast(pl.Float64, strict=False).alias("Final_Rsp")
+    ); progress.update(task, advance=1)
 
+    # 3. Duration_Days
     df = df.with_columns(
-        pl.when(pl.col("DateRange_Days").is_null()).then(pl.lit(""))
-        .when(pl.col("DateRange_Days") <= 10.5).then(pl.lit("Weekly"))
-        .when(pl.col("DateRange_Days") <= 17.5).then(pl.lit("Bi-weekly"))
-        .when(pl.col("DateRange_Days") <= 25.5).then(pl.lit("Tri-weekly"))
-        .otherwise(pl.lit("Monthly"))
-        .alias("Period")
-    )
+        (pl.col("Instore_End").cast(pl.Date, strict=False)
+         - pl.col("Instore_Start").cast(pl.Date, strict=False))
+        .dt.total_days().alias("Duration_Days")
+    ); progress.update(task, advance=1)
 
+    # 4. Period bucket
     df = df.with_columns(
-        pl.col("RSP Promo").cast(pl.Float64, strict=False).alias("RSP Promo")
-    )
+        pl.col("Duration_Days")
+          .map_elements(_closest_period, return_dtype=pl.Utf8)
+          .alias("Period")
+    ); progress.update(task, advance=1)
 
+    # 5. Quarter_Year
     df = df.with_columns(
-        pl.when((pl.col("RSP Promo").is_not_null()) & (pl.col("RSP Promo") > 0))
-        .then(pl.col("RSP Promo"))
-        .otherwise(pl.col("Promotion_Price"))
-        .alias("Final_Rsp")
-    )
+        pl.col("Instore_Start").cast(pl.Date, strict=False)
+          .map_elements(_quarter_year, return_dtype=pl.Utf8)
+          .alias("Quarter_Year")
+    ); progress.update(task, advance=1)
 
-    df = df.with_columns(
-        pl.when(pl.col("Instore_Start").is_null()).then(None)
-        .otherwise(
-            pl.format("Q{}_{}",
-                ((pl.col("Instore_Start").dt.month() - 1) // 3 + 1),
-                pl.col("Instore_Start").dt.year()
-            )
-        ).alias("Quarter_Year")
-    )
+    # 6. HARD FILTER on Quarter_Year
+    if target_quarter:
+        before = df.height
+        df = df.filter(pl.col("Quarter_Year") == target_quarter)
+        console.print(f"   📅 Quarter_Year=='{target_quarter}': kept {df.height:,} / {before:,}")
+    else:
+        console.print("[yellow]⚠ Could not derive Q_Y from sheet name — skipping Quarter filter[/]")
+    progress.update(task, advance=1)
 
-    return df.drop("_an_upper")
+    # 7. Print Promo_Type counts
+    pt_counts = {row["Promo_Type"]: row["len"]
+                 for row in df.group_by("Promo_Type").len().iter_rows(named=True)}
+    console.print(f"   Promo_Type counts: {pt_counts}")
+    progress.update(task, advance=1)
 
+    # 8. Print Period counts
+    pd_counts = {row["Period"]: row["len"]
+                 for row in df.group_by("Period").len().iter_rows(named=True)}
+    console.print(f"   Period counts:     {pd_counts}")
+    progress.update(task, advance=1)
+    return df
 
 # ============================================================
-# v1.6: SET parsing
+# RATE CARD INDEXING (SET parsing)
 # ============================================================
 def parse_set_cell(v) -> list:
-    if pd.isna(v):
-        return []
+    if v is None or (isinstance(v, float) and pd.isna(v)): return []
     if isinstance(v, (int, float)):
         return [round(float(v), 1)]
     s = str(v).strip()
-    if not s or s.lower() == "nan":
-        return []
-    parts = [p.strip() for p in s.split("/") if p.strip()]
+    if not s or s.lower() == "nan": return []
+    parts = [p.strip() for p in re.split(r"[/,]", s) if p.strip()]
     out = []
     for p in parts:
         try:
@@ -374,482 +380,237 @@ def parse_set_cell(v) -> list:
 
 
 def format_set(values: list) -> str | None:
-    if not values:
-        return None
+    if not values: return None
     parts = []
     for v in values:
-        if isinstance(v, str):
-            parts.append(v)
-        else:
-            parts.append(f"{v:.1f}")
+        parts.append(v if isinstance(v, str) else f"{v:g}")
     return "/".join(parts)
 
 
-def build_rate_lookup(rate_path: Path, sheet_name: str) -> tuple:
-    df_raw = pd.read_excel(rate_path, sheet_name=sheet_name, header=None)
-
-    m = re.search(r"Q\s*([1-4])[\s,_-]*\s*(20\d{2})", sheet_name, re.IGNORECASE)
-    quarter = (f"Q{m.group(1)}_{m.group(2)}" if m
-               else f"Q{(date.today().month - 1)//3 + 1}_{date.today().year}")
-
-    hdr_row = df_raw.apply(
-        lambda r: r.astype(str).str.contains("Promo Group", case=False, na=False).any(),
-        axis=1).idxmax()
-
-    def locate(contains):
-        row = df_raw.iloc[hdr_row].astype(str)
-        hits = [i for i, v in row.items() if contains.lower() in v.lower()]
-        return hits[0] if hits else None
-
-    ppg_col = locate("Promo Group")
-    if ppg_col is None:
-        raise RuntimeError(f"Could not find 'Promo Group' column in '{sheet_name}'")
-
-    max_col_needed = max(max(cols) for cols in PERIOD_COL_MAP.values())
-    if df_raw.shape[1] <= max_col_needed:
-        console.print(f"   [yellow]⚠ Sheet has only {df_raw.shape[1]} columns, "
-                      f"but logic expects up to col index {max_col_needed}.[/]")
-
-    records = []
-    for _, row in df_raw.iloc[hdr_row + 1:].iterrows():
-        ppg = row.iloc[ppg_col]
-        if pd.isna(ppg): continue
-        ppg_str = str(ppg).strip()
-        if not ppg_str or ppg_str.lower() in ("nan", "note"): continue
-
-        for period, col_indices in PERIOD_COL_MAP.items():
-            value_set = []
-            for col_idx in col_indices:
-                if col_idx < df_raw.shape[1]:
-                    parsed = parse_set_cell(row.iloc[col_idx])
-                    value_set.extend(parsed)
-
-            seen = set()
-            unique_set = []
-            for v in value_set:
-                key = ("S", v) if isinstance(v, str) else ("N", round(float(v), 1))
-                if key not in seen:
-                    seen.add(key)
-                    unique_set.append(v)
-
-            if unique_set:
-                records.append({
-                    "PPG":            ppg_str,
-                    "Period":         period,
-                    "Rate_Number": format_set(unique_set),
-                })
-
-    if not records:
-        raise RuntimeError(f"No usable rates from '{sheet_name}'")
-
-    lookup = pl.DataFrame(records)
-    return lookup, quarter
+def find_header_row(ws, keyword="Promo Group"):
+    for r in range(1, 30):
+        for c in range(1, 30):
+            v = ws.cell(r, c).value
+            if isinstance(v, str) and keyword.lower() in v.lower():
+                return r
+    raise RuntimeError(f"Header row containing '{keyword}' not found")
 
 
-def attach_rate(tpm: pl.DataFrame, lookup: pl.DataFrame, quarter: str) -> pl.DataFrame:
-    tpm = tpm.with_columns(
-        pl.col("PromoGroupProductDesc").cast(pl.Utf8)
-          .str.strip_chars().alias("_ppg_key")
-    )
-    tpm = tpm.join(
-        lookup.rename({"PPG": "_ppg_key"}),
-        on=["_ppg_key", "Period"],
-        how="left"
-    ).drop("_ppg_key")
-    tpm = tpm.with_columns(pl.lit(quarter).alias("Rate_Card_Source"))
-    return tpm
+def build_rate_card_index(path: Path, sheet: str, progress: Progress):
+    wb = load_workbook(path, data_only=True)
+    ws = wb[sheet]
+    header_row = find_header_row(ws, "Promo Group")
+    console.print(f"   Header row at: {header_row}")
+
+    ppg_col_idx = None
+    period_col_idx = None
+    for c in range(1, ws.max_column + 1):
+        v = ws.cell(header_row, c).value
+        if isinstance(v, str):
+            vl = v.strip().lower()
+            if "promo group" in vl or vl == "ppg":
+                ppg_col_idx = c
+            elif vl == "period":
+                period_col_idx = c
+    if ppg_col_idx is None:
+        raise RuntimeError("PPG column not found in Rate Card header")
+
+    index: dict[str, dict[str, list]] = {}
+    first_data_row = header_row + 1
+    task = progress.add_task("Indexing Rate Card", total=ws.max_row - header_row)
+    row_count = 0
+    for r in range(first_data_row, ws.max_row + 1):
+        ppg = ws.cell(r, ppg_col_idx).value
+        if ppg is None or str(ppg).strip() == "":
+            progress.update(task, advance=1); continue
+        key = str(ppg).strip()
+        period_val = ws.cell(r, period_col_idx).value if period_col_idx else None
+        period_key = str(period_val).strip() if period_val else None
+
+        per_period: dict[str, list] = index.setdefault(key, {})
+        for period_name, col_idx_list in PERIOD_COL_MAP.items():
+            if period_key and period_key != period_name:
+                continue
+            collected: list = []
+            for ci in col_idx_list:
+                cell_val = ws.cell(r, ci + 1).value  # openpyxl is 1-indexed
+                collected.extend(parse_set_cell(cell_val))
+            if collected:
+                per_period.setdefault(period_name, []).extend(collected)
+        row_count += 1
+        progress.update(task, advance=1)
+
+    console.print(f"   Indexed [cyan]{row_count}[/] PPG rows")
+    wb.close()
+    return index
 
 
-def _final_in_set(rate_str: str | None, final_rsp: float | None) -> bool | None:
-    if rate_str is None or final_rsp is None:
-        return None
+def lookup_rate_number(index, ppg, period):
+    if ppg is None or period is None: return None, []
+    key = str(ppg).strip()
+    bucket = index.get(key)
+    if not bucket: return None, []
+    vals = bucket.get(period, [])
+    return (format_set(vals) if vals else None), vals
+
+# ============================================================
+# COMPLIANCE EVALUATION
+# (Quarter mismatch impossible — already filtered out)
+# ============================================================
+def justify(rate_str, final_rsp, vals):
     if not rate_str:
-        return False
-    for part in str(rate_str).split("/"):
-        part = part.strip()
+        return "NO rate card available"
+    if final_rsp is None:
+        return "Missing Final_Rsp"
+    for v in vals:
         try:
-            if abs(float(part) - float(final_rsp)) <= 0.5:
-                return True
-        except ValueError:
+            if abs(float(v) - float(final_rsp)) <= TOLERANCE:
+                return "Comply"
+        except (TypeError, ValueError):
             continue
-    return False
+    return "Not Comply"
 
 
-# ============================================================
-# v1.8: Justification with Quarter mismatch priority
-# ============================================================
-def add_justification(tpm: pl.DataFrame) -> pl.DataFrame:
-    """
-    Priority (v1.8 ORDER):
-      1. Quarter mismatch       (Q_Y != RC_S, both not null) ← HIGHEST
-      2. NO rate card available (Rate_Number null/empty)
-      3. Missing Final_Rsp      (Final_Rsp null)
-      4. Comply                 (Final_Rsp ∈ Rate_Number SET, ±0.5)
-      5. NOT Comply             (otherwise)
-    
-    Also: clear Rate_Number for Quarter mismatch rows.
-    """
-    tpm = tpm.with_columns(
-        pl.struct(["Rate_Number", "Final_Rsp"])
-          .map_elements(
-              lambda s: _final_in_set(s["Rate_Number"], s["Final_Rsp"]),
-              return_dtype=pl.Boolean
-          ).alias("_in_set")
-    )
+def evaluate(df: pl.DataFrame, rc_index, progress: Progress) -> pl.DataFrame:
+    task = progress.add_task("Evaluating compliance", total=df.height)
+    rate_nums: list[str | None] = []
+    rate_lists: list[list] = []
+    justifications: list[str] = []
 
-    tpm = tpm.with_columns(
-        (pl.col("Quarter_Year").is_not_null()
-         & pl.col("Rate_Card_Source").is_not_null()
-         & (pl.col("Quarter_Year") != pl.col("Rate_Card_Source")))
-        .alias("_qtr_mismatch")
-    )
+    for row in df.iter_rows(named=True):
+        rs, vals = lookup_rate_number(
+            rc_index, row.get("PromoGroupProductDesc"), row.get("Period")
+        )
+        j = justify(rs, row.get("Final_Rsp"), vals)
+        rate_nums.append(rs)
+        rate_lists.append(vals)
+        justifications.append(j)
+        progress.update(task, advance=1)
 
-    tpm = tpm.with_columns(
-        pl.when(pl.col("_qtr_mismatch"))
-        .then(pl.lit(None, dtype=pl.Utf8))
-        .otherwise(pl.col("Rate_Number"))
-        .alias("Rate_Number")
-    )
-
-    tpm = tpm.with_columns(
-        pl.when(pl.col("_qtr_mismatch"))
-            .then(pl.lit("Quarter mismatch"))
-        .when(pl.col("Rate_Number").is_null() | (pl.col("Rate_Number") == ""))
-            .then(pl.lit("NO rate card available"))
-        .when(pl.col("Final_Rsp").is_null())
-            .then(pl.lit("Missing Final_Rsp"))
-        .when(pl.col("_in_set") == True)
-            .then(pl.lit("Comply"))
-        .otherwise(pl.lit("NOT Comply"))
-        .alias("Justification")
-    ).drop(["_in_set", "_qtr_mismatch"])
-
-    return tpm
-
-
-def build_summary(tpm: pl.DataFrame) -> pl.DataFrame:
-    grp = [c for c in ["Customer", "Brand", "Period"] if c in tpm.columns]
-    if not grp:
-        return pl.DataFrame({"Note": ["No grouping columns found"]})
-
-    summary = tpm.group_by(grp).agg([
-        (pl.col("Justification") == "Comply").sum().alias("Comply"),
-        (pl.col("Justification") == "NOT Comply").sum().alias("NOT Comply"),
-        (pl.col("Justification") == "Quarter mismatch").sum().alias("Quarter mismatch"),
-        (pl.col("Justification") == "NO rate card available").sum().alias("NO rate card available"),
-        (pl.col("Justification") == "Missing Final_Rsp").sum().alias("Missing Final_Rsp"),
-    ]).with_columns(
-        (pl.col("Comply") + pl.col("NOT Comply") + pl.col("Quarter mismatch") +
-         pl.col("NO rate card available") + pl.col("Missing Final_Rsp")).alias("Total")
-    ).with_columns(
-        (pl.col("Comply") / pl.col("Total") * 100).round(1).alias("Comply_%")
-    ).sort("Total", descending=True)
-
-    return summary
-
+    df = df.with_columns([
+        pl.Series("Rate_Number", rate_nums, dtype=pl.Utf8),
+        pl.Series("Justification", justifications, dtype=pl.Utf8),
+    ])
+    return df
 
 # ============================================================
-# OUTPUT (v1.9: Metadata sheet added)
+# OUTPUT — xlsxwriter; colors ONLY Justification cell
 # ============================================================
-def save_output(tpm: pl.DataFrame, summary: pl.DataFrame, out_path: Path):
-    final_drop = _columns_to_drop(tpm.columns)
-    if final_drop:
-        tpm = tpm.drop(final_drop)
-
-    if out_path.exists():
-        try:
-            out_path.unlink()
-        except PermissionError:
-            out_path = out_path.with_stem(out_path.stem + "_v2")
-            console.print(f"   [yellow]⚠ Previous output locked → writing to {out_path.name}[/]")
-
-    float_fmt = {"num_format": "0.0"}
-    int_fmt   = {"num_format": "0"}
-    date_fmt  = {"num_format": "yyyy-mm-dd"}
-    col_formats = {}
-    for col, dtype in zip(tpm.columns, tpm.dtypes):
-        if dtype in (pl.Float32, pl.Float64):
-            col_formats[col] = float_fmt
-        elif dtype in (pl.Int8, pl.Int16, pl.Int32, pl.Int64,
-                       pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64):
-            col_formats[col] = int_fmt
-        elif dtype in (pl.Date, pl.Datetime):
-            col_formats[col] = date_fmt
-
+def write_output(df: pl.DataFrame, out_path: Path, progress: Progress):
     import xlsxwriter
-    with xlsxwriter.Workbook(out_path) as wb:
-        # v1.9: Metadata sheet (leftmost tab, for traceability)
-        meta_df = pl.DataFrame({
-            "Property": [
-                "Tool Name",
-                "Version",
-                "Version Date",
-                "Version Notes",
-                "Run Timestamp",
-                "Python Version",
-                "Total Rows Processed",
-                "Compliance Categories",
-                "Generated By (Windows User)",
-                "Working Directory",
-            ],
-            "Value": [
-                "TPM × Rate Card Compliance Validator",
-                f"v{__version__}",
-                __version_date__,
-                __version_notes__,
-                f"{datetime.now():%Y-%m-%d %H:%M:%S}",
-                f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
-                f"{tpm.height:,}",
-                ", ".join(sorted(tpm["Justification"].unique().to_list())),
-                f"{os.environ.get('USERNAME', 'unknown')}",
-                str(WORK_DIR),
-            ],
-        })
-        meta_df.write_excel(
-            workbook=wb,
-            worksheet="Metadata",
-            autofit=True,
-            header_format={
-                "bold": True, "bg_color": "#305496",
-                "font_color": "white", "align": "left",
-            },
-        )
+    final_drop = _columns_to_drop(df.columns)
+    if final_drop:
+        df = df.drop(final_drop)
 
-        tpm.write_excel(
-            workbook=wb,
-            worksheet="Compliance",
-            autofit=True,
-            freeze_panes=(1, 0),
-            autofilter=True,
-            header_format={
-                "bold": True, "bg_color": "#305496",
-                "font_color": "white", "align": "center", "valign": "vcenter",
-            },
-            column_formats=col_formats,
-            conditional_formats={
-                "Justification": [
-                    {"type": "cell", "criteria": "==", "value": '"Comply"',
-                     "format": {"bg_color": "#C6EFCE", "font_color": "#006100"}},
-                    {"type": "cell", "criteria": "==", "value": '"NOT Comply"',
-                     "format": {"bg_color": "#FFC7CE", "font_color": "#9C0006"}},
-                    {"type": "cell", "criteria": "==", "value": '"Quarter mismatch"',
-                     "format": {"bg_color": "#FCE4D6", "font_color": "#974706", "bold": True}},
-                    {"type": "cell", "criteria": "==", "value": '"NO rate card available"',
-                     "format": {"bg_color": "#FFEB9C", "font_color": "#9C5700"}},
-                    {"type": "cell", "criteria": "==", "value": '"Missing Final_Rsp"',
-                     "format": {"bg_color": "#D9D9D9", "font_color": "#555555"}},
-                ],
-            },
-        )
+    task = progress.add_task("Writing Excel (xlsxwriter)", total=df.height)
+    wb = xlsxwriter.Workbook(out_path, {"constant_memory": True})
+    ws = wb.add_worksheet("Compliance")
 
-        summary_col_formats = {}
-        for col, dtype in zip(summary.columns, summary.dtypes):
-            if dtype in (pl.Float32, pl.Float64):
-                summary_col_formats[col] = float_fmt
-            elif dtype in (pl.Int8, pl.Int16, pl.Int32, pl.Int64,
-                           pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64):
-                summary_col_formats[col] = int_fmt
+    header_fmt = wb.add_format({"bold": True, "bg_color": "#305496",
+                                "font_color": "white", "border": 1})
+    fmt_map = {k: wb.add_format({"bg_color": v, "border": 1})
+               for k, v in COLOR_MAP_HEX.items()}
 
-        summary.write_excel(
-            workbook=wb,
-            worksheet="Summary",
-            autofit=True,
-            freeze_panes=(1, 0),
-            autofilter=True,
-            header_format={
-                "bold": True, "bg_color": "#305496",
-                "font_color": "white", "align": "center",
-            },
-            column_formats=summary_col_formats,
-            conditional_formats={
-                "Comply_%": [
-                    {"type": "3_color_scale",
-                     "min_color": "#F8696B", "mid_color": "#FFEB84", "max_color": "#63BE7B"}
-                ]
-            },
-        )
+    cols = df.columns
+    for ci, col in enumerate(cols):
+        ws.write(0, ci, col, header_fmt)
+    try:
+        just_idx = cols.index("Justification")
+    except ValueError:
+        just_idx = -1
 
-    if not out_path.exists() or out_path.stat().st_size < 1024:
-        raise RuntimeError(f"Output file empty/corrupt: {out_path}")
-    chk = pd.read_excel(out_path, sheet_name="Compliance", nrows=5)
-    if chk.empty:
-        raise RuntimeError("Saved file failed verification.")
-    return out_path
+    for ri, row in enumerate(df.iter_rows(), start=1):
+        for ci, val in enumerate(row):
+            if ci == just_idx and val in fmt_map:
+                ws.write(ri, ci, val, fmt_map[val])
+            else:
+                if val is None:
+                    ws.write_blank(ri, ci, None)
+                else:
+                    ws.write(ri, ci, val)
+        progress.update(task, advance=1)
 
+    # Metadata sheet
+    meta = wb.add_worksheet("Metadata")
+    meta.write(0, 0, "Key", header_fmt); meta.write(0, 1, "Value", header_fmt)
+    meta_rows = [
+        ("Version", __version__),
+        ("Version Date", __version_date__),
+        ("Notes", __version_notes__),
+        ("Generated", date.today().isoformat()),
+        ("Working Dir", str(WORK_DIR)),
+        ("Rows", df.height),
+        ("CD_Category Filter", CD_CATEGORY_KEEP),
+    ]
+    for i, (k, v) in enumerate(meta_rows, start=1):
+        meta.write(i, 0, k); meta.write(i, 1, str(v))
+
+    wb.close()
 
 # ============================================================
 # RICH SUMMARY DISPLAY
 # ============================================================
-def display_summary(tpm: pl.DataFrame, out_path: Path):
-    total = tpm.height
-    counts = tpm["Justification"].value_counts().sort("count", descending=True)
+def display_summary(df: pl.DataFrame, out_path: Path):
+    counts_df = df.group_by("Justification").len().sort("len", descending=True)
+    counts = {row["Justification"]: row["len"] for row in counts_df.iter_rows(named=True)}
 
-    table = Table(title=f"📊 Justification Breakdown  [dim](v{__version__})[/]",
-                  box=box.ROUNDED, header_style="bold cyan")
-    table.add_column("Category", style="bold")
-    table.add_column("Count", justify="right")
-    table.add_column("%",     justify="right")
-    table.add_column("Bar",   justify="left")
-
-    color_map = {
-        "Comply":                  "green",
-        "NOT Comply":              "red",
-        "Quarter mismatch":        "dark_orange",
-        "NO rate card available":  "yellow",
-        "Missing Final_Rsp":       "white",
-    }
-    for row in counts.iter_rows(named=True):
-        cat = row["Justification"]
-        n   = row["count"]
-        pct = n / total * 100
-        bar_width = int(pct / 2)
-        bar = "█" * bar_width
-        color = color_map.get(cat, "white")
-        table.add_row(
-            f"[{color}]{cat}[/]",
-            f"{n:,}",
-            f"{pct:5.1f}%",
-            f"[{color}]{bar}[/]"
-        )
-    table.add_section()
-    table.add_row("[bold]Total[/]", f"[bold]{total:,}[/]", "100.0%", "")
+    table = Table(title=f"📊 FabSol Compliance Summary  (v{__version__})",
+                  box=box.ROUNDED, show_header=True, header_style="bold cyan")
+    table.add_column("Justification", style="bold")
+    table.add_column("Count", justify="right", style="cyan")
+    total = df.height or 1
+    for k, v in counts.items():
+        table.add_row(k, f"{v:,}  ({v/total:.1%})")
+    table.add_row("[bold]TOTAL[/]", f"[bold]{df.height:,}[/]")
     console.print(table)
-
-    size_mb = out_path.stat().st_size / 1024 / 1024
-    console.print(Panel.fit(
-        f"[green]✅ Output saved successfully![/]\n\n"
-        f"📄 [bold]{out_path.name}[/]\n"
-        f"📁 [dim]{out_path.parent}[/]\n"
-        f"💾 [dim]{size_mb:.1f} MB · {total:,} rows · v{__version__}[/]\n\n"
-        f"[dim]Sheets:[/]\n"
-        f"  • [cyan]Metadata[/]   — version & run info (v1.9 NEW)\n"
-        f"  • [cyan]Compliance[/] — all rows, color-coded\n"
-        f"  • [cyan]Summary[/]    — pivot by Customer × Brand × Period",
-        border_style="green",
-        box=box.ROUNDED,
-    ))
-
+    console.print(f"\n[green bold]✅ Saved:[/] {out_path}")
 
 # ============================================================
 # MAIN
 # ============================================================
 def main():
     banner()
-
-    # v1.9: Print version line — easy to grep from logs
-    console.print(f"[dim]>>> TPM_Compliance v{__version__} | "
-                  f"Date: {date.today():%Y-%m-%d} | "
-                  f"Time: {datetime.now():%H:%M:%S} | "
-                  f"PID: {os.getpid()} <<<[/]\n")
+    console.print(f"[dim]Startup — FabSol Validator v{__version__}[/]")
 
     files = list_xlsx_files(WORK_DIR)
     if not files:
-        console.print(f"[red]❌ No xlsx files found in {WORK_DIR}[/]")
+        console.print(f"[red]❌ No Excel files in {WORK_DIR}[/]")
         sys.exit(1)
 
-    console.print(f"[dim]Found {len(files)} Excel file(s) in working folder[/]\n")
+    # --- Pick TPM file + sheet
+    tpm_path = pick_file(files, "Select the TPM file:")
+    tpm_sheets = get_sheet_names(tpm_path)
+    tpm_sheet = pick_sheet(f"Select sheet in TPM ({tpm_path.name}):", tpm_sheets)
 
-    tpm_path = pick_file(files, "📂 Which file is the TPM file?",
-                          suggest_keyword="tpm")
-    console.print(f"   [green]✓[/] TPM file: [bold]{tpm_path.name}[/]\n")
+    # --- Pick Rate Card file + sheet
+    rate_path = pick_file(files, "Select the FW Rate Card file:")
+    rate_sheets = get_sheet_names(rate_path)
+    rate_sheet = pick_sheet(f"Select sheet in Rate Card ({rate_path.name}):", rate_sheets)
 
-    remaining = [f for f in files if f != tpm_path]
-    if not remaining:
-        console.print("[red]❌ Only one file in folder. Need a separate Rate Card file.[/]")
-        sys.exit(1)
-    rate_path = pick_file(remaining, "📂 Which file is the Rate Card file?",
-                           suggest_keyword="rate card")
-    console.print(f"   [green]✓[/] Rate card: [bold]{rate_path.name}[/]\n")
+    # Quarter derived from RATE CARD sheet name (this drives the Quarter_Year filter)
+    target_quarter = derive_target_quarter(rate_sheet)
+    if target_quarter:
+        console.print(f"[dim]Rate Card target quarter: [cyan]{target_quarter}[/][/]")
+    else:
+        console.print("[yellow]⚠ Could not parse quarter from sheet name "
+                      f"'{rate_sheet}' — Quarter_Year filter will be skipped[/]")
 
-    sheet_name = pick_sheet(rate_path)
-    console.print(f"   [green]✓[/] Sheet: [bold]{sheet_name}[/]\n")
+    # Output filename includes Q_Y + date (mirrors H&H naming scheme)
+    q_for_name = (target_quarter or "AllQ").replace(" ", "_")
+    out_name = f"FabSol_Compliance_{q_for_name}_{date.today():%Y-%m-%d}.xlsx"
+    out_path = WORK_DIR / out_name
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[bold blue]{task.description}"),
-        BarColumn(),
-        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-        TimeElapsedColumn(),
-        console=console,
-    ) as progress:
+    with make_progress() as progress:
+        df = load_tpm(tpm_path, tpm_sheet, progress)
+        df = validate_and_filter(df, progress)
+        df = add_helper_columns(df, target_quarter, progress)
+        rc_index = build_rate_card_index(rate_path, rate_sheet, progress)
+        df = evaluate(df, rc_index, progress)
+        write_output(df, out_path, progress)
 
-        t1 = progress.add_task("Loading TPM with Polars...", total=6)
-
-        tpm = load_tpm(tpm_path)
-        progress.console.print(f"   [dim]Loaded {tpm.height:,} rows × {tpm.width} cols[/]")
-        progress.advance(t1)
-
-        progress.update(t1, description="Deriving helper columns (vectorized)...")
-        tpm = add_helper_columns(tpm)
-        progress.advance(t1)
-
-        progress.update(t1, description="Building rate-card SET lookup...")
-        lookup, quarter = build_rate_lookup(rate_path, sheet_name)
-        progress.console.print(f"   [dim]Lookup table: {lookup.height:,} (PPG × Period) entries "
-                                f"from {quarter}[/]")
-        progress.advance(t1)
-
-        progress.update(t1, description="Joining rate card SET to TPM...")
-        tpm = attach_rate(tpm, lookup, quarter)
-        progress.advance(t1)
-
-        progress.update(t1, description="Computing Justification (v1.8 priority)...")
-        tpm = add_justification(tpm)
-        progress.advance(t1)
-
-        progress.update(t1, description="Building summary & saving xlsx...")
-        summary = build_summary(tpm)
-        out_path = WORK_DIR / OUT_NAME
-        out_path = save_output(tpm, summary, out_path)
-        progress.advance(t1)
-
-    console.print()
-    display_summary(tpm, out_path)
-
-    console.print("\n[bold]Self-tests:[/]")
-    no_rc = (tpm["Justification"] == "NO rate card available").mean()
-    icon = "[green]✅[/]" if no_rc < 0.95 else "[red]❌[/]"
-    console.print(f"  {icon} NO-rate-card share: {no_rc:.1%}")
-
-    qm = (tpm["Justification"] == "Quarter mismatch").mean()
-    console.print(f"  [dim]Quarter mismatch share: {qm:.1%}[/]")
-
-    bogo = tpm.filter(pl.col("Promo_Type") == "BOGO")
-    if bogo.height:
-        ok = bogo["Promotion_Price"].is_null().all()
-        icon = "[green]✅[/]" if ok else "[red]❌[/]"
-        console.print(f"  {icon} BOGO blank-price: {ok}")
-
-    for pt in ["PO", "2F1", "LAKSUE"]:
-        sub = tpm.filter(pl.col("Promo_Type") == pt)
-        if sub.height:
-            rate = sub["Promotion_Price"].is_not_null().mean()
-            icon = "[green]✅[/]" if rate > 0.8 else "[yellow]⚠️[/]"
-            console.print(f"  {icon} {pt:<6s} extraction: {rate:.0%} of {sub.height:,} rows")
-
-    qm_rows = tpm.filter(pl.col("Justification") == "Quarter mismatch")
-    if qm_rows.height > 0:
-        all_blank = qm_rows["Rate_Number"].is_null().all()
-        icon = "[green]✅[/]" if all_blank else "[red]❌[/]"
-        console.print(f"  {icon} Quarter mismatch Rate_Number cleared: {all_blank} "
-                      f"({qm_rows.height:,} rows)")
-
-    if tpm.height > 0 and "Rate_Number" in tpm.columns:
-        sample = (tpm.filter(pl.col("Rate_Number").is_not_null())
-                     .select(["Period", "Rate_Number"]).unique()
-                     .head(5))
-        if sample.height > 0:
-            console.print("\n[bold]Sample Rate_Number SETs (non-mismatch rows):[/]")
-            for row in sample.iter_rows(named=True):
-                console.print(f"  [dim]{row['Period']:<12s}[/] → [cyan]{row['Rate_Number']}[/]")
-
-    # v1.9: Final version stamp
-    console.print(f"\n[bold green]🎉 Done![/]  "
-                  f"[bold]TPM_Compliance v{__version__}[/] · "
-                  f"[dim]{date.today():%Y-%m-%d} {datetime.now():%H:%M:%S}[/]\n")
+    display_summary(df, out_path)
 
 
-# ============================================================
 if __name__ == "__main__":
     try:
         main()
@@ -859,5 +620,5 @@ if __name__ == "__main__":
     except Exception as e:
         console.print(f"\n[red bold]❌ Error (v{__version__}): {e}[/]")
         console.print(Panel(traceback.format_exc(), title=f"Traceback — v{__version__}",
-                             border_style="red", box=box.ROUNDED))
+                            border_style="red", box=box.ROUNDED))
         sys.exit(1)

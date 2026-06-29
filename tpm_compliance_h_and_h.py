@@ -1,5 +1,5 @@
 """
-Home & Hygiene (H&H) × FW Rate Card Compliance Validator — v2.4
+Home & Hygiene (H&H) × Rate Card Compliance Validator — v2.4
 Date: 2026-06-23
 
 v2.4 changes:
@@ -532,7 +532,7 @@ def main():
 
     # File pickers — cursor starts at first (most recent) file
     tpm_file = pick_file(files, "📄 Select TPM Data file:")
-    rc_file  = pick_file(files, "📄 Select FW Rate Card file:")
+    rc_file  = pick_file(files, "📄 Select Rate Card file:")
 
     # Sheet pickers — cursor always starts at first sheet, no default
     tpm_sheets = load_workbook(tpm_file, read_only=True).sheetnames
