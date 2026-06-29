@@ -1,12 +1,13 @@
 """
-Home & Hygiene (H&H) × FW Rate Card Compliance Validator — v2.3
+Home & Hygiene (H&H) × FW Rate Card Compliance Validator — v2.4
 Date: 2026-06-23
 
-v2.3 changes:
-  ✓ CD_Category filter = "H&H" (was "FAB SOL")
-  ✓ Color ONLY the Justification cell (not the entire row)
-  ✓ Output filename includes category + quarter
+v2.4 changes:
+  ✓ Output filename: H_and_H_Compliance_{Quarter}_{Date}.xlsx
+  ✓ Sheet/file pickers: cursor always starts at first item (no auto-default)
+  ✓ Removed green highlight on selected items
 
+v2.3 — Filter H&H + Justification-cell-only coloring
 v2.2 — Calamine reader + xlsxwriter (fast)
 v2.1 — Banner + styled picker + progress bar
 v2.0 — Migrated pandas → polars
@@ -40,9 +41,9 @@ from rich import box
 # ============================================================
 # VERSION
 # ============================================================
-__version__       = "2.3"
+__version__       = "2.4"
 __version_date__  = "2026-06-23"
-__version_notes__ = "Filter H&H category + Justification-cell-only coloring"
+__version_notes__ = "Filename H_and_H_* + cursor starts at first item"
 
 console = Console()
 
@@ -66,7 +67,7 @@ else:
 # ============================================================
 # CONFIG
 # ============================================================
-CD_CATEGORY_KEEP = "H&H"           # ⬅ FIXED: was "FAB SOL"
+CD_CATEGORY_KEEP = "H&H"
 TOLERANCE = 0.5
 
 REQUIRED_COLUMNS = [
@@ -110,13 +111,14 @@ COLOR_MAP_HEX = {
     "Missing Final_Rsp":      "#D9D9D9",
 }
 
+# Neutral palette — no green fills anywhere
 QSTYLE = QStyle([
     ("qmark",       "fg:#00aaff bold"),
     ("question",    "bold"),
-    ("answer",      "fg:#00ff88 bold"),
+    ("answer",      "fg:#00aaff bold"),
     ("pointer",     "fg:#ff8800 bold"),
-    ("highlighted", "fg:#00aaff bold"),
-    ("selected",    "fg:#00ff88"),
+    ("highlighted", "fg:#00aaff bold noreverse"),
+    ("selected",    "noinherit"),
     ("instruction", "fg:#888888 italic"),
 ])
 
@@ -142,30 +144,37 @@ def list_xlsx_files(folder: Path) -> list[Path]:
         p for p in folder.iterdir()
         if p.suffix.lower() in (".xlsx", ".xlsb", ".xls")
         and not p.name.startswith("~$")
+        and not p.name.startswith("H_and_H_Compliance_")
         and not p.name.startswith("HandH_Compliance_")
         and not p.name.startswith("HH_Compliance_")
         and p.is_file()
     ], key=lambda p: p.stat().st_mtime, reverse=True)
 
-def pick_file(files: list[Path], prompt: str, suggest_keyword: str = "") -> Path:
-    if suggest_keyword:
-        kw = suggest_keyword.lower()
-        files = [f for f in files if kw in f.name.lower()] + \
-                [f for f in files if kw not in f.name.lower()]
+def pick_file(files: list[Path], prompt: str) -> Path:
+    """File picker — cursor always starts at first (most recent) file."""
     choices = [questionary.Choice(title=f.name, value=f) for f in files]
-    answer = questionary.select(prompt, choices=choices, style=QSTYLE,
-                                instruction="(↑/↓ to move, Enter to select)").ask()
+    answer = questionary.select(
+        prompt,
+        choices=choices,
+        style=QSTYLE,
+        instruction="(↑/↓ to move, Enter to select)",
+    ).ask()
     if answer is None:
-        console.print("[yellow]Cancelled by user[/]"); sys.exit(0)
+        console.print("[yellow]Cancelled by user[/]")
+        sys.exit(0)
     return answer
 
-def pick_sheet(prompt: str, sheets: list[str], *default_keywords) -> str:
-    norm = lambda s: re.sub(r"[^a-z0-9]", "", s.lower())
-    default = next((s for s in sheets if all(norm(k) in norm(s) for k in default_keywords)), None)
-    answer = questionary.select(prompt, choices=sheets, default=default, style=QSTYLE,
-                                instruction="(↑/↓ to move, Enter to select)").ask()
+def pick_sheet(prompt: str, sheets: list[str]) -> str:
+    """Sheet picker — cursor always starts at first sheet. No auto-default."""
+    answer = questionary.select(
+        prompt,
+        choices=sheets,
+        style=QSTYLE,
+        instruction="(↑/↓ to move, Enter to select)",
+    ).ask()
     if answer is None:
-        console.print("[yellow]Cancelled by user[/]"); sys.exit(0)
+        console.print("[yellow]Cancelled by user[/]")
+        sys.exit(0)
     return answer
 
 def derive_target_quarter(sheet_name: str) -> str | None:
@@ -190,7 +199,7 @@ def make_progress() -> Progress:
 def validate_columns(df: pl.DataFrame) -> pl.DataFrame:
     if "RSP Promo" not in df.columns and "WPRM" in df.columns:
         df = df.rename({"WPRM": "RSP Promo"})
-        console.print("   🔁 Renamed [yellow]WPRM[/] → [green]RSP Promo[/]")
+        console.print("   🔁 Renamed [yellow]WPRM[/] → [cyan]RSP Promo[/]")
     missing = [c for c in REQUIRED_COLUMNS if c not in df.columns]
     if missing:
         console.print(f"[red]❌ Missing required columns:[/] {missing}")
@@ -423,7 +432,6 @@ def write_output(df: pl.DataFrame, out_path: Path, progress: Progress):
         "bg_color": "#305496", "align": "center", "valign": "vcenter",
     })
 
-    # ⬇ Only the Justification cell gets a color fill
     just_fmts = {
         label: wb.add_format({"bg_color": hex_, "bold": True, "align": "center"})
         for label, hex_ in COLOR_MAP_HEX.items()
@@ -436,13 +444,11 @@ def write_output(df: pl.DataFrame, out_path: Path, progress: Progress):
     date_col_idx = {i for i, name in enumerate(cols)
                     if df.schema[name] in (pl.Datetime, pl.Date)}
 
-    # Header
     for c, col_name in enumerate(cols):
         ws.write(0, c, col_name, header_fmt)
     ws.freeze_panes(1, 0)
     ws.autofilter(0, 0, df.height, len(cols) - 1)
 
-    # Body — only Justification cell gets a color; everything else default
     task = progress.add_task("Writing Excel (xlsxwriter)", total=df.height)
     for r, row in enumerate(df.iter_rows(), start=1):
         for c, v in enumerate(row):
@@ -524,14 +530,16 @@ def main():
         console.print(f"[red]❌ No Excel files found in:[/] {WORK_DIR}")
         sys.exit(1)
 
-    tpm_file = pick_file(files, "📄 Select TPM Data file:",     suggest_keyword="tpm")
-    rc_file  = pick_file(files, "📄 Select FW Rate Card file:", suggest_keyword="rate")
+    # File pickers — cursor starts at first (most recent) file
+    tpm_file = pick_file(files, "📄 Select TPM Data file:")
+    rc_file  = pick_file(files, "📄 Select FW Rate Card file:")
 
+    # Sheet pickers — cursor always starts at first sheet, no default
     tpm_sheets = load_workbook(tpm_file, read_only=True).sheetnames
     rc_sheets  = load_workbook(rc_file,  read_only=True).sheetnames
 
-    tpm_sheet = pick_sheet("📑 Select TPM data sheet:",            tpm_sheets, "raw")
-    rc_sheet  = pick_sheet("📑 Select Rate Card sheet (Quarter):", rc_sheets,  "q3", "2026")
+    tpm_sheet = pick_sheet("📑 Select TPM data sheet:",            tpm_sheets)
+    rc_sheet  = pick_sheet("📑 Select Rate Card sheet (Quarter):", rc_sheets)
 
     target_quarter = derive_target_quarter(rc_sheet)
     console.print(f"\n   🎯 Target quarter: [bold]{target_quarter}[/]\n")
@@ -551,6 +559,7 @@ def main():
         ws, rc_index = build_rate_card_index(rc_file, rc_sheet, progress)
         tpm = evaluate(tpm, ws, rc_index, progress)
 
+        # Output filename: H_and_H_Compliance_{Quarter}_{Date}.xlsx
         q_safe   = (target_quarter or "AllQuarters").replace(" ", "_")
         cat_safe = CD_CATEGORY_KEEP.replace("&", "_and_").replace(" ", "")
         out_name = f"{cat_safe}_Compliance_{q_safe}_{date.today():%Y-%m-%d}.xlsx"
