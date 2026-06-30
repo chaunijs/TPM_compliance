@@ -1,0 +1,343 @@
+============================================================
+ H_and_H Compliance Build - v5 (pyproject.toml based)
+ Started: Tue 06/30/2026 14:24:54.41
+============================================================
+
+[PREFLIGHT] Checking project files...
+  Will use pyproject.toml
+  [OK] All required files present
+
+[STEP 1] Finding Python...
+  Found py launcher 
+Python 3.10.12
+  Executable: C:\ProgramData\miniforge3\python.exe
+
+[STEP 2] Cleaning old artifacts...
+  Done
+
+[STEP 3] Creating venv...
+  Venv Python: C:\Users\Teerapat.Haeranyikan\TPM-build\TPM_compliance\build_venv\Scripts\python.exe
+Python 3.10.12
+
+[STEP 4] Upgrading pip...
+Requirement already satisfied: pip in c:\users\teerapat.haeranyikan\tpm-build\tpm_compliance\build_venv\lib\site-packages (23.0.1)
+Collecting pip
+  Using cached pip-26.1.2-py3-none-any.whl (1.8 MB)
+Installing collected packages: pip
+  Attempting uninstall: pip
+    Found existing installation: pip 23.0.1
+    Uninstalling pip-23.0.1:
+      Successfully uninstalled pip-23.0.1
+Successfully installed pip-26.1.2
+
+[STEP 5] Installing all packages...
+  Using pyproject.toml [build] dependencies...
+Processing .\.
+  Installing build dependencies: started
+  Installing build dependencies: finished with status 'done'
+  Getting requirements to build wheel: started
+  Getting requirements to build wheel: finished with status 'done'
+  Preparing metadata (pyproject.toml): started
+  Preparing metadata (pyproject.toml): finished with status 'done'
+Collecting polars<2.0,>=1.0 (from tpm-compliance==1.5.0)
+  Downloading polars-1.42.1-py3-none-any.whl.metadata (10 kB)
+Collecting pandas<3.0,>=2.0 (from tpm-compliance==1.5.0)
+  Using cached pandas-2.3.3-cp310-cp310-win_amd64.whl.metadata (19 kB)
+Collecting openpyxl>=3.1 (from tpm-compliance==1.5.0)
+  Using cached openpyxl-3.1.5-py2.py3-none-any.whl.metadata (2.5 kB)
+Collecting xlsxwriter>=3.2 (from tpm-compliance==1.5.0)
+  Using cached xlsxwriter-3.2.9-py3-none-any.whl.metadata (2.7 kB)
+Collecting fastexcel>=0.10 (from tpm-compliance==1.5.0)
+  Using cached fastexcel-0.20.2-cp310-abi3-win_amd64.whl.metadata (7.4 kB)
+Collecting questionary>=2.0 (from tpm-compliance==1.5.0)
+  Using cached questionary-2.1.1-py3-none-any.whl.metadata (5.4 kB)
+Collecting rich>=13.0 (from tpm-compliance==1.5.0)
+  Using cached rich-15.0.0-py3-none-any.whl.metadata (18 kB)
+Collecting pyxlsb>=1.0 (from tpm-compliance==1.5.0)
+  Using cached pyxlsb-1.0.10-py2.py3-none-any.whl.metadata (2.5 kB)
+Collecting pyinstaller<7.0,>=6.0 (from tpm-compliance==1.5.0)
+  Using cached pyinstaller-6.21.0-py3-none-win_amd64.whl.metadata (8.5 kB)
+Collecting pyinstaller-hooks-contrib>=2024.0 (from tpm-compliance==1.5.0)
+  Using cached pyinstaller_hooks_contrib-2026.6-py3-none-any.whl.metadata (16 kB)
+Collecting numpy>=1.22.4 (from pandas<3.0,>=2.0->tpm-compliance==1.5.0)
+  Using cached numpy-2.2.6-cp310-cp310-win_amd64.whl.metadata (60 kB)
+Collecting python-dateutil>=2.8.2 (from pandas<3.0,>=2.0->tpm-compliance==1.5.0)
+  Using cached python_dateutil-2.9.0.post0-py2.py3-none-any.whl.metadata (8.4 kB)
+Collecting pytz>=2020.1 (from pandas<3.0,>=2.0->tpm-compliance==1.5.0)
+  Using cached pytz-2026.2-py2.py3-none-any.whl.metadata (22 kB)
+Collecting tzdata>=2022.7 (from pandas<3.0,>=2.0->tpm-compliance==1.5.0)
+  Using cached tzdata-2026.2-py2.py3-none-any.whl.metadata (1.4 kB)
+Collecting polars-runtime-32==1.42.1 (from polars<2.0,>=1.0->tpm-compliance==1.5.0)
+  Downloading polars_runtime_32-1.42.1-cp310-abi3-win_amd64.whl.metadata (1.5 kB)
+Collecting altgraph (from pyinstaller<7.0,>=6.0->tpm-compliance==1.5.0)
+  Using cached altgraph-0.17.5-py2.py3-none-any.whl.metadata (7.5 kB)
+Collecting packaging>=22.0 (from pyinstaller<7.0,>=6.0->tpm-compliance==1.5.0)
+  Using cached packaging-26.2-py3-none-any.whl.metadata (3.5 kB)
+Collecting pefile>=2022.5.30 (from pyinstaller<7.0,>=6.0->tpm-compliance==1.5.0)
+  Using cached pefile-2024.8.26-py3-none-any.whl.metadata (1.4 kB)
+Collecting pywin32-ctypes>=0.2.1 (from pyinstaller<7.0,>=6.0->tpm-compliance==1.5.0)
+  Using cached pywin32_ctypes-0.2.3-py3-none-any.whl.metadata (3.9 kB)
+Requirement already satisfied: setuptools>=42.0.0 in .\build_venv\lib\site-packages (from pyinstaller<7.0,>=6.0->tpm-compliance==1.5.0) (65.5.0)
+Collecting et-xmlfile (from openpyxl>=3.1->tpm-compliance==1.5.0)
+  Using cached et_xmlfile-2.0.0-py3-none-any.whl.metadata (2.7 kB)
+Collecting six>=1.5 (from python-dateutil>=2.8.2->pandas<3.0,>=2.0->tpm-compliance==1.5.0)
+  Using cached six-1.17.0-py2.py3-none-any.whl.metadata (1.7 kB)
+Collecting prompt_toolkit<4.0,>=2.0 (from questionary>=2.0->tpm-compliance==1.5.0)
+  Using cached prompt_toolkit-3.0.52-py3-none-any.whl.metadata (6.4 kB)
+Collecting wcwidth (from prompt_toolkit<4.0,>=2.0->questionary>=2.0->tpm-compliance==1.5.0)
+  Downloading wcwidth-0.8.2-py3-none-any.whl.metadata (43 kB)
+Collecting markdown-it-py>=2.2.0 (from rich>=13.0->tpm-compliance==1.5.0)
+  Using cached markdown_it_py-4.2.0-py3-none-any.whl.metadata (7.4 kB)
+Collecting pygments<3.0.0,>=2.13.0 (from rich>=13.0->tpm-compliance==1.5.0)
+  Using cached pygments-2.20.0-py3-none-any.whl.metadata (2.5 kB)
+Collecting mdurl~=0.1 (from markdown-it-py>=2.2.0->rich>=13.0->tpm-compliance==1.5.0)
+  Using cached mdurl-0.1.2-py3-none-any.whl.metadata (1.6 kB)
+Using cached pandas-2.3.3-cp310-cp310-win_amd64.whl (11.3 MB)
+Downloading polars-1.42.1-py3-none-any.whl (837 kB)
+   ---------------------------------------- 837.6/837.6 kB 7.4 MB/s  0:00:00
+Downloading polars_runtime_32-1.42.1-cp310-abi3-win_amd64.whl (52.7 MB)
+   ---------------------------------------- 52.7/52.7 MB 36.1 MB/s  0:00:01
+Using cached pyinstaller-6.21.0-py3-none-win_amd64.whl (1.4 MB)
+Using cached fastexcel-0.20.2-cp310-abi3-win_amd64.whl (3.3 MB)
+Using cached numpy-2.2.6-cp310-cp310-win_amd64.whl (12.9 MB)
+Using cached openpyxl-3.1.5-py2.py3-none-any.whl (250 kB)
+Using cached packaging-26.2-py3-none-any.whl (100 kB)
+Using cached pefile-2024.8.26-py3-none-any.whl (74 kB)
+Using cached pyinstaller_hooks_contrib-2026.6-py3-none-any.whl (457 kB)
+Using cached python_dateutil-2.9.0.post0-py2.py3-none-any.whl (229 kB)
+Using cached pytz-2026.2-py2.py3-none-any.whl (510 kB)
+Using cached pywin32_ctypes-0.2.3-py3-none-any.whl (30 kB)
+Using cached pyxlsb-1.0.10-py2.py3-none-any.whl (23 kB)
+Using cached questionary-2.1.1-py3-none-any.whl (36 kB)
+Using cached prompt_toolkit-3.0.52-py3-none-any.whl (391 kB)
+Using cached rich-15.0.0-py3-none-any.whl (310 kB)
+Using cached pygments-2.20.0-py3-none-any.whl (1.2 MB)
+Using cached markdown_it_py-4.2.0-py3-none-any.whl (91 kB)
+Using cached mdurl-0.1.2-py3-none-any.whl (10.0 kB)
+Using cached six-1.17.0-py2.py3-none-any.whl (11 kB)
+Using cached tzdata-2026.2-py2.py3-none-any.whl (349 kB)
+Using cached xlsxwriter-3.2.9-py3-none-any.whl (175 kB)
+Using cached altgraph-0.17.5-py2.py3-none-any.whl (21 kB)
+Using cached et_xmlfile-2.0.0-py3-none-any.whl (18 kB)
+Downloading wcwidth-0.8.2-py3-none-any.whl (323 kB)
+Building wheels for collected packages: tpm-compliance
+  Building wheel for tpm-compliance (pyproject.toml): started
+  Building wheel for tpm-compliance (pyproject.toml): finished with status 'done'
+  Created wheel for tpm-compliance: filename=tpm_compliance-1.5.0-py3-none-any.whl size=1262 sha256=a378018bb2d3719ba6556d1a7702515f44ebd26321c1d218c6f4161e271966d6
+  Stored in directory: C:\Users\Teerapat.Haeranyikan\AppData\Local\Temp\pip-ephem-wheel-cache-1038_me3\wheels\bc\15\26\e14c3d612ddcf40de0ac30cb0d5c75becc40a91e3fcfff183d
+Successfully built tpm-compliance
+Installing collected packages: pyxlsb, pytz, altgraph, xlsxwriter, wcwidth, tzdata, six, pywin32-ctypes, pygments, polars-runtime-32, pefile, packaging, numpy, mdurl, fastexcel, et-xmlfile, python-dateutil, pyinstaller-hooks-contrib, prompt_toolkit, polars, openpyxl, markdown-it-py, rich, questionary, pyinstaller, pandas, tpm-compliance
+
+Successfully installed altgraph-0.17.5 et-xmlfile-2.0.0 fastexcel-0.20.2 markdown-it-py-4.2.0 mdurl-0.1.2 numpy-2.2.6 openpyxl-3.1.5 packaging-26.2 pandas-2.3.3 pefile-2024.8.26 polars-1.42.1 polars-runtime-32-1.42.1 prompt_toolkit-3.0.52 pygments-2.20.0 pyinstaller-6.21.0 pyinstaller-hooks-contrib-2026.6 python-dateutil-2.9.0.post0 pytz-2026.2 pywin32-ctypes-0.2.3 pyxlsb-1.0.10 questionary-2.1.1 rich-15.0.0 six-1.17.0 tpm-compliance-1.5.0 tzdata-2026.2 wcwidth-0.8.2 xlsxwriter-3.2.9
+  [OK] All packages installed
+
+  [OK] PyInstaller ready
+
+[VERIFY] Installed packages:
+Package                   Version
+------------------------- -----------
+altgraph                  0.17.5
+et_xmlfile                2.0.0
+fastexcel                 0.20.2
+markdown-it-py            4.2.0
+mdurl                     0.1.2
+numpy                     2.2.6
+openpyxl                  3.1.5
+packaging                 26.2
+pandas                    2.3.3
+pefile                    2024.8.26
+pip                       26.1.2
+polars                    1.42.1
+polars-runtime-32         1.42.1
+prompt_toolkit            3.0.52
+Pygments                  2.20.0
+pyinstaller               6.21.0
+pyinstaller-hooks-contrib 2026.6
+python-dateutil           2.9.0.post0
+pytz                      2026.2
+pywin32-ctypes            0.2.3
+pyxlsb                    1.0.10
+questionary               2.1.1
+rich                      15.0.0
+setuptools                65.5.0
+six                       1.17.0
+tpm-compliance            1.5.0
+tzdata                    2026.2
+wcwidth                   0.8.2
+xlsxwriter                3.2.9
+
+[STEP 6] Building exe...
+141 WARNING: Assuming this is not an Anaconda environment or an additional venv/pipenv/... environment manager is being used on top, because the conda-meta folder C:\Users\Teerapat.Haeranyikan\TPM-build\TPM_compliance\build_venv\conda-meta does not exist.
+158 INFO: PyInstaller: 6.21.0, contrib hooks: 2026.6
+158 INFO: Python: 3.10.12 (conda)
+187 INFO: Platform: Windows-10-10.0.26200-SP0
+187 INFO: Python environment: C:\Users\Teerapat.Haeranyikan\TPM-build\TPM_compliance\build_venv
+188 INFO: wrote C:\Users\Teerapat.Haeranyikan\TPM-build\TPM_compliance\H_and_H_Compliance.spec
+189 INFO: Removing temporary files and cleaning cache in C:\Users\Teerapat.Haeranyikan\AppData\Local\pyinstaller
+125 WARNING: Assuming this is not an Anaconda environment or an additional venv/pipenv/... environment manager is being used on top, because the conda-meta folder C:\Users\Teerapat.Haeranyikan\TPM-build\TPM_compliance\build_venv\conda-meta does not exist.
+132 WARNING: Assuming this is not an Anaconda environment or an additional venv/pipenv/... environment manager is being used on top, because the conda-meta folder C:\Users\Teerapat.Haeranyikan\TPM-build\TPM_compliance\build_venv\conda-meta does not exist.
+119 WARNING: Assuming this is not an Anaconda environment or an additional venv/pipenv/... environment manager is being used on top, because the conda-meta folder C:\Users\Teerapat.Haeranyikan\TPM-build\TPM_compliance\build_venv\conda-meta does not exist.
+121 WARNING: Assuming this is not an Anaconda environment or an additional venv/pipenv/... environment manager is being used on top, because the conda-meta folder C:\Users\Teerapat.Haeranyikan\TPM-build\TPM_compliance\build_venv\conda-meta does not exist.
+112 WARNING: Assuming this is not an Anaconda environment or an additional venv/pipenv/... environment manager is being used on top, because the conda-meta folder C:\Users\Teerapat.Haeranyikan\TPM-build\TPM_compliance\build_venv\conda-meta does not exist.
+294 WARNING: Failed to collect submodules for 'prompt_toolkit.contrib.ssh' because importing 'prompt_toolkit.contrib.ssh' raised: ModuleNotFoundError: No module named 'asyncssh'
+120 WARNING: Assuming this is not an Anaconda environment or an additional venv/pipenv/... environment manager is being used on top, because the conda-meta folder C:\Users\Teerapat.Haeranyikan\TPM-build\TPM_compliance\build_venv\conda-meta does not exist.
+3416 WARNING: Failed to collect submodules for 'polars.testing.parametric' because importing 'polars.testing.parametric' raised: ModuleNotFoundError: polars.testing.parametric requires the 'hypothesis' module
+Please install it using the command: pip install hypothesis
+10036 WARNING: collect_data_files - skipping data collection for module 'polars_runtime_32' as it is not a package.
+10036 WARNING: collect_dynamic_libs - skipping library collection for module 'polars_runtime_32' as it is not a package.
+124 WARNING: Assuming this is not an Anaconda environment or an additional venv/pipenv/... environment manager is being used on top, because the conda-meta folder C:\Users\Teerapat.Haeranyikan\TPM-build\TPM_compliance\build_venv\conda-meta does not exist.
+11496 INFO: Module search paths (PYTHONPATH):
+['C:\\Users\\Teerapat.Haeranyikan\\TPM-build\\TPM_compliance',
+ 'C:\\ProgramData\\miniforge3\\python310.zip',
+ 'C:\\ProgramData\\miniforge3\\DLLs',
+ 'C:\\ProgramData\\miniforge3\\lib',
+ 'C:\\ProgramData\\miniforge3',
+ 'C:\\Users\\Teerapat.Haeranyikan\\TPM-build\\TPM_compliance\\build_venv',
+ 'C:\\Users\\Teerapat.Haeranyikan\\TPM-build\\TPM_compliance\\build_venv\\lib\\site-packages',
+ 'C:\\Users\\Teerapat.Haeranyikan\\TPM-build\\TPM_compliance']
+121 WARNING: Assuming this is not an Anaconda environment or an additional venv/pipenv/... environment manager is being used on top, because the conda-meta folder C:\Users\Teerapat.Haeranyikan\TPM-build\TPM_compliance\build_venv\conda-meta does not exist.
+12214 INFO: Appending 'binaries' from .spec
+12215 INFO: Appending 'datas' from .spec
+12256 INFO: checking Analysis
+12256 INFO: Building Analysis because Analysis-00.toc is non existent
+12256 INFO: Looking for Python shared library...
+12256 INFO: Using Python shared library: C:\ProgramData\miniforge3\python310.dll
+12256 INFO: Running Analysis Analysis-00.toc
+12256 INFO: Target bytecode optimization level: 0
+12256 INFO: Initializing module dependency graph...
+12259 INFO: Initializing module graph hook caches...
+12359 INFO: Analyzing modules for base_library.zip ...
+112 WARNING: Assuming this is not an Anaconda environment or an additional venv/pipenv/... environment manager is being used on top, because the conda-meta folder C:\Users\Teerapat.Haeranyikan\TPM-build\TPM_compliance\build_venv\conda-meta does not exist.
+113 WARNING: Assuming this is not an Anaconda environment or an additional venv/pipenv/... environment manager is being used on top, because the conda-meta folder C:\Users\Teerapat.Haeranyikan\TPM-build\TPM_compliance\build_venv\conda-meta does not exist.
+13155 INFO: Processing standard module hook 'hook-encodings.py' from 'C:\\Users\\Teerapat.Haeranyikan\\TPM-build\\TPM_compliance\\build_venv\\lib\\site-packages\\PyInstaller\\hooks'
+111 WARNING: Assuming this is not an Anaconda environment or an additional venv/pipenv/... environment manager is being used on top, because the conda-meta folder C:\Users\Teerapat.Haeranyikan\TPM-build\TPM_compliance\build_venv\conda-meta does not exist.
+14545 INFO: Processing standard module hook 'hook-heapq.py' from 'C:\\Users\\Teerapat.Haeranyikan\\TPM-build\\TPM_compliance\\build_venv\\lib\\site-packages\\PyInstaller\\hooks'
+15812 INFO: Processing standard module hook 'hook-math.py' from 'C:\\Users\\Teerapat.Haeranyikan\\TPM-build\\TPM_compliance\\build_venv\\lib\\site-packages\\PyInstaller\\hooks'
+18770 INFO: Processing standard module hook 'hook-pickle.py' from 'C:\\Users\\Teerapat.Haeranyikan\\TPM-build\\TPM_compliance\\build_venv\\lib\\site-packages\\PyInstaller\\hooks'
+26934 INFO: Caching module dependency graph...
+27069 INFO: Analyzing C:\Users\Teerapat.Haeranyikan\TPM-build\TPM_compliance\tpm_compliance_h_and_h.py
+27317 INFO: Processing standard module hook 'hook-_ctypes.py' from 'C:\\Users\\Teerapat.Haeranyikan\\TPM-build\\TPM_compliance\\build_venv\\lib\\site-packages\\PyInstaller\\hooks'
+27444 INFO: Processing standard module hook 'hook-platform.py' from 'C:\\Users\\Teerapat.Haeranyikan\\TPM-build\\TPM_compliance\\build_venv\\lib\\site-packages\\PyInstaller\\hooks'
+28119 INFO: Processing standard module hook 'hook-zoneinfo.py' from 'C:\\Users\\Teerapat.Haeranyikan\\TPM-build\\TPM_compliance\\build_venv\\lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+28221 INFO: Processing standard module hook 'hook-sysconfig.py' from 'C:\\Users\\Teerapat.Haeranyikan\\TPM-build\\TPM_compliance\\build_venv\\lib\\site-packages\\PyInstaller\\hooks'
+30275 INFO: Processing standard module hook 'hook-numpy.py' from 'C:\\Users\\Teerapat.Haeranyikan\\TPM-build\\TPM_compliance\\build_venv\\lib\\site-packages\\PyInstaller\\hooks'
+32228 INFO: Processing standard module hook 'hook-webbrowser.py' from 'C:\\Users\\Teerapat.Haeranyikan\\TPM-build\\TPM_compliance\\build_venv\\lib\\site-packages\\PyInstaller\\hooks'
+34409 INFO: Processing standard module hook 'hook-difflib.py' from 'C:\\Users\\Teerapat.Haeranyikan\\TPM-build\\TPM_compliance\\build_venv\\lib\\site-packages\\PyInstaller\\hooks'
+35427 INFO: Processing standard module hook 'hook-multiprocessing.util.py' from 'C:\\Users\\Teerapat.Haeranyikan\\TPM-build\\TPM_compliance\\build_venv\\lib\\site-packages\\PyInstaller\\hooks'
+35860 INFO: Processing standard module hook 'hook-xml.py' from 'C:\\Users\\Teerapat.Haeranyikan\\TPM-build\\TPM_compliance\\build_venv\\lib\\site-packages\\PyInstaller\\hooks'
+40308 INFO: Processing pre-safe-import-module hook 'hook-typing_extensions.py' from 'C:\\Users\\Teerapat.Haeranyikan\\TPM-build\\TPM_compliance\\build_venv\\lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+40313 INFO: SetuptoolsInfo: initializing cached setuptools info...
+385 WARNING: Assuming this is not an Anaconda environment or an additional venv/pipenv/... environment manager is being used on top, because the conda-meta folder C:\Users\Teerapat.Haeranyikan\TPM-build\TPM_compliance\build_venv\conda-meta does not exist.
+42534 INFO: Processing standard module hook 'hook-pandas.py' from 'C:\\Users\\Teerapat.Haeranyikan\\TPM-build\\TPM_compliance\\build_venv\\lib\\site-packages\\PyInstaller\\hooks'
+114 WARNING: Assuming this is not an Anaconda environment or an additional venv/pipenv/... environment manager is being used on top, because the conda-meta folder C:\Users\Teerapat.Haeranyikan\TPM-build\TPM_compliance\build_venv\conda-meta does not exist.
+49762 INFO: Processing standard module hook 'hook-pytz.py' from 'C:\\Users\\Teerapat.Haeranyikan\\TPM-build\\TPM_compliance\\build_venv\\lib\\site-packages\\PyInstaller\\hooks'
+55755 INFO: Processing standard module hook 'hook-pandas.io.formats.style.py' from 'C:\\Users\\Teerapat.Haeranyikan\\TPM-build\\TPM_compliance\\build_venv\\lib\\site-packages\\PyInstaller\\hooks'
+59399 INFO: Processing standard module hook 'hook-pandas.plotting.py' from 'C:\\Users\\Teerapat.Haeranyikan\\TPM-build\\TPM_compliance\\build_venv\\lib\\site-packages\\PyInstaller\\hooks'
+60720 INFO: Processing standard module hook 'hook-openpyxl.py' from 'C:\\Users\\Teerapat.Haeranyikan\\TPM-build\\TPM_compliance\\build_venv\\lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+61639 INFO: Processing standard module hook 'hook-xml.etree.cElementTree.py' from 'C:\\Users\\Teerapat.Haeranyikan\\TPM-build\\TPM_compliance\\build_venv\\lib\\site-packages\\PyInstaller\\hooks'
+64324 INFO: Processing standard module hook 'hook-sqlite3.py' from 'C:\\Users\\Teerapat.Haeranyikan\\TPM-build\\TPM_compliance\\build_venv\\lib\\site-packages\\PyInstaller\\hooks'
+127 WARNING: Assuming this is not an Anaconda environment or an additional venv/pipenv/... environment manager is being used on top, because the conda-meta folder C:\Users\Teerapat.Haeranyikan\TPM-build\TPM_compliance\build_venv\conda-meta does not exist.
+64929 INFO: Processing standard module hook 'hook-pandas.io.clipboard.py' from 'C:\\Users\\Teerapat.Haeranyikan\\TPM-build\\TPM_compliance\\build_venv\\lib\\site-packages\\PyInstaller\\hooks'
+65613 INFO: Processing standard module hook 'hook-dateutil.py' from 'C:\\Users\\Teerapat.Haeranyikan\\TPM-build\\TPM_compliance\\build_venv\\lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+66075 INFO: Processing pre-safe-import-module hook 'hook-six.moves.py' from 'C:\\Users\\Teerapat.Haeranyikan\\TPM-build\\TPM_compliance\\build_venv\\lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+66759 INFO: Processing standard module hook 'hook-xml.dom.domreg.py' from 'C:\\Users\\Teerapat.Haeranyikan\\TPM-build\\TPM_compliance\\build_venv\\lib\\site-packages\\PyInstaller\\hooks'
+72136 INFO: Processing standard module hook 'hook-wcwidth.py' from 'C:\\Users\\Teerapat.Haeranyikan\\TPM-build\\TPM_compliance\\build_venv\\lib\\site-packages\\PyInstaller\\hooks'
+72788 INFO: Processing standard module hook 'hook-pygments.py' from 'C:\\Users\\Teerapat.Haeranyikan\\TPM-build\\TPM_compliance\\build_venv\\lib\\site-packages\\PyInstaller\\hooks'
+116 WARNING: Assuming this is not an Anaconda environment or an additional venv/pipenv/... environment manager is being used on top, because the conda-meta folder C:\Users\Teerapat.Haeranyikan\TPM-build\TPM_compliance\build_venv\conda-meta does not exist.
+119 WARNING: Assuming this is not an Anaconda environment or an additional venv/pipenv/... environment manager is being used on top, because the conda-meta folder C:\Users\Teerapat.Haeranyikan\TPM-build\TPM_compliance\build_venv\conda-meta does not exist.
+111 WARNING: Assuming this is not an Anaconda environment or an additional venv/pipenv/... environment manager is being used on top, because the conda-meta folder C:\Users\Teerapat.Haeranyikan\TPM-build\TPM_compliance\build_venv\conda-meta does not exist.
+76454 INFO: Processing standard module hook 'hook-rich.py' from 'C:\\Users\\Teerapat.Haeranyikan\\TPM-build\\TPM_compliance\\build_venv\\lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+121 WARNING: Assuming this is not an Anaconda environment or an additional venv/pipenv/... environment manager is being used on top, because the conda-meta folder C:\Users\Teerapat.Haeranyikan\TPM-build\TPM_compliance\build_venv\conda-meta does not exist.
+79166 INFO: Analyzing hidden import 'pandas._libs.tslibs.base'
+79168 INFO: Analyzing hidden import 'openpyxl.compat.abc'
+79170 INFO: Analyzing hidden import 'openpyxl.compat.product'
+79173 INFO: Analyzing hidden import 'openpyxl.compat.singleton'
+79177 INFO: Analyzing hidden import 'openpyxl.descriptors.slots'
+79182 INFO: Analyzing hidden import 'openpyxl.packaging.interface'
+79184 INFO: Analyzing hidden import 'openpyxl.utils.dataframe'
+79192 INFO: Analyzing hidden import 'openpyxl.utils.inference'
+79196 INFO: Analyzing hidden import 'openpyxl.worksheet.cell_watch'
+79200 INFO: Analyzing hidden import 'openpyxl.worksheet.controls'
+79216 INFO: Analyzing hidden import 'openpyxl.worksheet.custom'
+79219 INFO: Analyzing hidden import 'openpyxl.worksheet.errors'
+79222 INFO: Analyzing hidden import 'openpyxl.worksheet.picture'
+79224 INFO: Analyzing hidden import 'openpyxl.worksheet.smart_tag'
+79232 INFO: Analyzing hidden import 'rich._unicode_data.unicode10-0-0'
+79243 INFO: Analyzing hidden import 'rich._unicode_data.unicode11-0-0'
+79257 INFO: Analyzing hidden import 'rich._unicode_data.unicode12-0-0'
+79268 INFO: Analyzing hidden import 'rich._unicode_data.unicode12-1-0'
+79343 INFO: Analyzing hidden import 'rich._unicode_data.unicode13-0-0'
+79363 INFO: Analyzing hidden import 'rich._unicode_data.unicode14-0-0'
+79379 INFO: Analyzing hidden import 'rich._unicode_data.unicode15-0-0'
+79399 INFO: Analyzing hidden import 'rich._unicode_data.unicode15-1-0'
+79418 INFO: Analyzing hidden import 'rich._unicode_data.unicode16-0-0'
+79442 INFO: Analyzing hidden import 'rich._unicode_data.unicode17-0-0'
+79460 INFO: Analyzing hidden import 'rich._unicode_data.unicode4-1-0'
+79468 INFO: Analyzing hidden import 'rich._unicode_data.unicode5-0-0'
+79474 INFO: Analyzing hidden import 'rich._unicode_data.unicode5-1-0'
+79484 INFO: Analyzing hidden import 'rich._unicode_data.unicode5-2-0'
+79490 INFO: Analyzing hidden import 'rich._unicode_data.unicode6-0-0'
+79501 INFO: Analyzing hidden import 'rich._unicode_data.unicode6-1-0'
+79516 INFO: Analyzing hidden import 'rich._unicode_data.unicode6-2-0'
+79524 INFO: Analyzing hidden import 'rich._unicode_data.unicode6-3-0'
+79533 INFO: Analyzing hidden import 'rich._unicode_data.unicode7-0-0'
+79546 INFO: Analyzing hidden import 'rich._unicode_data.unicode8-0-0'
+79560 INFO: Analyzing hidden import 'rich._unicode_data.unicode9-0-0'
+79575 INFO: Analyzing hidden import 'rich.bar'
+79581 INFO: Analyzing hidden import 'rich.diagnose'
+79586 INFO: Analyzing hidden import 'rich.layout'
+79636 INFO: Analyzing hidden import 'rich.logging'
+79658 INFO: Analyzing hidden import 'rich.prompt'
+79681 INFO: Analyzing hidden import 'prompt_toolkit.clipboard.pyperclip'
+79687 INFO: Analyzing hidden import 'prompt_toolkit.contrib'
+79689 INFO: Analyzing hidden import 'prompt_toolkit.contrib.completers'
+79757 INFO: Analyzing hidden import 'prompt_toolkit.contrib.regular_languages.lexer'
+79762 INFO: Analyzing hidden import 'prompt_toolkit.contrib.regular_languages.validation'
+79767 INFO: Analyzing hidden import 'prompt_toolkit.contrib.telnet'
+79798 INFO: Analyzing hidden import 'prompt_toolkit.log'
+79801 INFO: Analyzing hidden import 'prompt_toolkit.token'
+79804 INFO: Analyzing hidden import 'polars._utils.cloud'
+79811 INFO: Analyzing hidden import 'polars.io._expand_paths'
+79818 INFO: Analyzing hidden import 'polars.io.spreadsheet._utils'
+79825 INFO: Analyzing hidden import 'polars.testing'
+79860 INFO: Analyzing hidden import 'polars.type_aliases'
+79863 INFO: Analyzing hidden import 'fastexcel'
+79969 INFO: Processing module hooks (post-graph stage)...
+79996 WARNING: Hidden import "jinja2" not found!
+83563 INFO: Processing standard module hook 'hook-tzdata.py' from 'C:\\Users\\Teerapat.Haeranyikan\\TPM-build\\TPM_compliance\\build_venv\\lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+132 WARNING: Assuming this is not an Anaconda environment or an additional venv/pipenv/... environment manager is being used on top, because the conda-meta folder C:\Users\Teerapat.Haeranyikan\TPM-build\TPM_compliance\build_venv\conda-meta does not exist.
+84708 INFO: Performing binary vs. data reclassification (1444 entries)
+104828 INFO: Looking for ctypes DLLs
+104910 INFO: Analyzing run-time hooks ...
+104930 INFO: Including run-time hook 'pyi_rth_inspect.py' from 'C:\\Users\\Teerapat.Haeranyikan\\TPM-build\\TPM_compliance\\build_venv\\lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+104935 INFO: Including run-time hook 'pyi_rth_pkgutil.py' from 'C:\\Users\\Teerapat.Haeranyikan\\TPM-build\\TPM_compliance\\build_venv\\lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+104942 INFO: Including run-time hook 'pyi_rth_multiprocessing.py' from 'C:\\Users\\Teerapat.Haeranyikan\\TPM-build\\TPM_compliance\\build_venv\\lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+105163 INFO: Creating base_library.zip...
+105216 INFO: Looking for dynamic libraries
+107059 INFO: Extra DLL search directories (AddDllDirectory): ['C:\\Users\\Teerapat.Haeranyikan\\TPM-build\\TPM_compliance\\build_venv\\lib\\site-packages\\pandas.libs', 'C:\\Users\\Teerapat.Haeranyikan\\TPM-build\\TPM_compliance\\build_venv\\lib\\site-packages\\numpy.libs']
+107059 INFO: Extra DLL search directories (PATH): []
+111182 INFO: Warnings written to C:\Users\Teerapat.Haeranyikan\TPM-build\TPM_compliance\build\H_and_H_Compliance\warn-H_and_H_Compliance.txt
+111861 INFO: Graph cross-reference written to C:\Users\Teerapat.Haeranyikan\TPM-build\TPM_compliance\build\H_and_H_Compliance\xref-H_and_H_Compliance.html
+112132 INFO: checking PYZ
+112132 INFO: Building PYZ because PYZ-00.toc is non existent
+112132 INFO: Building PYZ (ZlibArchive) C:\Users\Teerapat.Haeranyikan\TPM-build\TPM_compliance\build\H_and_H_Compliance\PYZ-00.pyz
+114308 INFO: Building PYZ (ZlibArchive) C:\Users\Teerapat.Haeranyikan\TPM-build\TPM_compliance\build\H_and_H_Compliance\PYZ-00.pyz completed successfully.
+114511 INFO: checking PKG
+114512 INFO: Building PKG because PKG-00.toc is non existent
+114512 INFO: Building PKG (CArchive) H_and_H_Compliance.pkg
+179350 INFO: Building PKG (CArchive) H_and_H_Compliance.pkg completed successfully.
+179458 INFO: Bootloader C:\Users\Teerapat.Haeranyikan\TPM-build\TPM_compliance\build_venv\lib\site-packages\PyInstaller\bootloader\Windows-64bit-intel\run.exe
+179458 INFO: checking EXE
+179458 INFO: Building EXE because EXE-00.toc is non existent
+179458 INFO: Building EXE from EXE-00.toc
+179459 INFO: Copying bootloader EXE to C:\Users\Teerapat.Haeranyikan\TPM-build\TPM_compliance\dist\H_and_H_Compliance.exe
+179684 INFO: Copying icon to EXE
+179816 INFO: Copying 0 resources to EXE
+179818 INFO: Embedding manifest in EXE
+179937 INFO: Appending PKG archive to EXE
+180153 INFO: Fixing EXE headers
+191744 INFO: Building EXE from EXE-00.toc completed successfully.
+191825 INFO: Build complete! The results are available in: C:\Users\Teerapat.Haeranyikan\TPM-build\TPM_compliance\dist
+
+[SUCCESS] Built: C:\Users\Teerapat.Haeranyikan\TPM-build\TPM_compliance\dist\H_and_H_Compliance.exe
+          Size: 90037912 bytes

@@ -1,11 +1,11 @@
 @echo off
 REM ============================================================
-REM  v5 - Uses pyproject.toml for package management
+REM  Fab Sol Compliance Build - v5 (pyproject.toml based)
 REM ============================================================
 setlocal enabledelayedexpansion
 cd /d "%~dp0"
 
-set "LOG_FILE=%~dp0build_log.txt"
+set "LOG_FILE=%~dp0build_log_fab_sol.txt"
 if exist "%LOG_FILE%" del /q "%LOG_FILE%"
 
 echo Starting build... output will be saved to:
@@ -21,20 +21,20 @@ echo.
 echo ============================================================
 if !BUILD_RESULT! equ 0 (
     echo  BUILD SUCCESS!
-    if exist "%~dp0dist\TPM_Compliance.exe" (
-        echo  Output: %~dp0dist\TPM_Compliance.exe
-        for %%A in ("%~dp0dist\TPM_Compliance.exe") do (
+    if exist "%~dp0dist\Fab_Sol_Compliance.exe" (
+        echo  Output: %~dp0dist\Fab_Sol_Compliance.exe
+        for %%A in ("%~dp0dist\Fab_Sol_Compliance.exe") do (
             set /a "size_mb=%%~zA / 1048576"
             echo  Size:   !size_mb! MB
         )
     )
 ) else (
     echo  BUILD FAILED!
-    echo  Check build_log.txt for details
+    echo  Check build_log_fab_sol.txt for details
 )
 echo ============================================================
 echo.
-echo Opening build_log.txt in Notepad...
+echo Opening build_log_fab_sol.txt in Notepad...
 timeout /t 2 >nul
 start "" notepad "%LOG_FILE%"
 exit /b !BUILD_RESULT!
@@ -42,7 +42,7 @@ exit /b !BUILD_RESULT!
 
 :main
 echo ============================================================
-echo  TPM Compliance Build - v5 (pyproject.toml based)
+echo  Fab Sol Compliance Build - v5 (pyproject.toml based)
 echo  Started: %DATE% %TIME%
 echo ============================================================
 echo.
@@ -61,8 +61,8 @@ if not exist "%~dp0pyproject.toml" (
     echo   Will use pyproject.toml
     set "USE_PYPROJECT=1"
 )
-if not exist "%~dp0run_tpm_compliance.py" (
-    echo [ERROR] run_tpm_compliance.py not found!
+if not exist "%~dp0tpm_compliance_fabsol.py" (
+    echo [ERROR] tpm_compliance_fabsol.py not found!
     exit /b 1
 )
 echo   [OK] All required files present
@@ -100,7 +100,7 @@ echo [STEP 2] Cleaning old artifacts...
 if exist "%~dp0build_venv" rd /s /q "%~dp0build_venv"
 if exist "%~dp0dist" rd /s /q "%~dp0dist"
 if exist "%~dp0build" rd /s /q "%~dp0build"
-if exist "%~dp0TPM_Compliance.spec" del /q "%~dp0TPM_Compliance.spec"
+if exist "%~dp0Fab_Sol_Compliance.spec" del /q "%~dp0Fab_Sol_Compliance.spec"
 echo   Done
 echo.
 
@@ -163,7 +163,7 @@ echo [STEP 6] Building exe...
 "!VENV_PY!" -m PyInstaller ^
     --onefile ^
     --console ^
-    --name TPM_Compliance ^
+    --name Fab_Sol_Compliance ^
     --noconfirm --clean ^
     --collect-all polars ^
     --collect-all polars_runtime_32 ^
@@ -194,7 +194,7 @@ echo [STEP 6] Building exe...
     --exclude-module pandas.io.tests ^
     --exclude-module numpy.tests ^
     --exclude-module asyncssh ^
-    "%~dp0run_tpm_compliance.py"
+    "%~dp0tpm_compliance_fabsol.py"
 
 if !errorlevel! neq 0 (
     echo [ERROR] PyInstaller build failed
@@ -203,8 +203,8 @@ if !errorlevel! neq 0 (
 
 REM ----- Verify output -----
 echo.
-if exist "%~dp0dist\TPM_Compliance.exe" (
-    for %%A in ("%~dp0dist\TPM_Compliance.exe") do (
+if exist "%~dp0dist\Fab_Sol_Compliance.exe" (
+    for %%A in ("%~dp0dist\Fab_Sol_Compliance.exe") do (
         echo [SUCCESS] Built: %%~fA
         echo           Size: %%~zA bytes
     )
